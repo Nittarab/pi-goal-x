@@ -269,6 +269,30 @@ export class GoalService {
 		return this.turn.active;
 	}
 
+	/**
+	 * Replace focused memory with the parsed goal file, ignoring the pool cache
+	 * and persisted snapshot. Used to authorize automatic checkpoints.
+	 */
+	refreshFocusedFromAuthoritativeFile(ctx: GoalServiceContext): boolean {
+		const current = this.ref.getFocused();
+		if (!current) return false;
+		const fresh = this.readFreshDiskGoal(ctx, current);
+		if (!fresh) {
+			const lost = current.id;
+			this.ref.getPool().delete(lost);
+			if (this.ref.getFocusedGoalId() === lost) {
+				this.ref.assignFocusedGoalId(null);
+				this.ref.onFocusedGoalLost(lost, ctx);
+			}
+			return false;
+		}
+		const next = sanitizeGoalPaths(ctx, { ...fresh, activePath: current.activePath ?? fresh.activePath });
+		this.ref.setFocused(next);
+		this.ref.getPool().set(next.id, next);
+		this.ref.onReconciled(next);
+		return true;
+	}
+
 	constructor(ref: GoalServiceRef) {
 		this.ref = ref;
 	}
@@ -400,7 +424,7 @@ export class GoalService {
 		if (spec.reconcile !== false && !this.reconcileFocused(ctx)) {
 			return { ok: false, message: "The focused goal was lost during reconciliation; the mutation was not applied." };
 		}
-		const current = this.ref.getFocused();
+		let current = this.ref.getFocused();
 		if (!current) {
 			return { ok: false, message: "No focused goal to mutate." };
 		}
@@ -413,57 +437,26 @@ export class GoalService {
 			return { ok: false, message: `Mutation cancelled because goal ${spec.focusToken.goalId} is no longer focused in this session. The shared goal was not modified.` };
 		}
 
-		// 2b. P1-3: during a turn the mutation is buffered in memory (no lock, no
-		//     disk write yet); the flush acquires the lock, writes, and appends
-		//     the ledger once per turn. Outside a turn the immediate path below
-		//     (lock + optimistic revision check) is unchanged.
+		// Critical mutations must hit disk before success. A turn buffer, if any,
+		// is flushed first; an empty turn is closed so this apply uses the lock path.
 		if (this.turn.active) {
-			if (this.turn.goalId !== null && current.id !== this.turn.goalId) {
-				// Focus changed mid-turn: persist the previous buffer first.
-				this.flushTurn(ctx);
-				if (this.turn.active) return {ok: false, message: this.flushError ?? "Previous goal changes are still awaiting persistence."};
-				this.turn.active = true;
-				this.turn.goalId = current.id;
-				this.turn.goal = current;
-				this.turnBase = current;
-				this.turn.archive = false;
-				this.turn.ledger = [];
+			if (this.turn.goal) {
+				const flushed = this.flushTurn(ctx);
+				if (!flushed) return { ok: false, message: this.flushError ?? "Pending goal changes have not been persisted." };
+				current = this.ref.getFocused() ?? flushed;
+			} else {
+				this.turn.active = false;
 			}
-			if (!this.turn.goal) {
-				this.turn.goal = current;
-				this.turn.goalId = current.id;
-				if (this.turnBase?.id !== current.id) this.turnBase = {...current, usage: {...current.usage}};
-			}
-			const base = current;
-			const mutated = sanitizeGoalPaths(ctx, {
-				...spec.mutate(cloneGoal(base)),
-				revision: (current.revision ?? 0) + 1,
-			});
-			if (spec.ledger) {
-				try {
-					const events = typeof spec.ledger === "function" ? spec.ledger(mutated) : spec.ledger;
-					this.turn.ledger.push(...events);
-				} catch {
-					// Ledger spec error: nothing appended (same swallow as the write path).
-				}
-			}
-			this.turn.goal = mutated;
-			this.turn.archive = spec.archive === true;
-			const previousGoalId = current.id;
-			const commitFocused = spec.commitFocused !== false;
-			if (commitFocused) {
-				this.ref.setFocused(mutated);
-				this.trackBaseline(mutated.id, mutated.usage);
-			}
-			const goalId = commitFocused ? mutated.id : this.ref.getFocusedGoalId();
-			const focusChanged = commitFocused && previousGoalId !== mutated.id;
-			if (focusChanged) this.ref.onFocusChanged(previousGoalId, mutated.id);
-			return { ok: true, goal: mutated, previousGoalId, goalId, focusChanged };
 		}
 
 		// 2b. exclusive per-goal lock + optimistic revision check (follow-up Stage 4).
 		const capturedRevision = current.revision ?? 0;
-		const lock = acquireGoalLock(ctx, current.id);
+		let lock: GoalLock;
+		try {
+			lock = acquireGoalLock(ctx, current.id);
+		} catch {
+			return { ok: false, message: "Goal storage is locked; the mutation was not applied." };
+		}
 		try {
 			const freshDisk = this.readFreshDiskGoal(ctx, current);
 			if (!freshDisk) {
@@ -529,55 +522,13 @@ export class GoalService {
  * instead of throwing.
  */
 		updateTask(ctx: GoalServiceContext, spec: GoalTaskUpdateSpec): GoalTaskUpdateOutcome {
-		// P1-3: during a turn, apply to the buffered goal in memory (validation
-		// still runs against the current in-turn state); the flush writes once.
 		if (this.turn.active) {
-			const current = this.turn.goal ?? this.ref.getFocused();
-			if (!current) {
-				return { ok: false, message: "No focused goal to mutate." };
+			if (this.turn.goal) {
+				const flushed = this.flushTurn(ctx);
+				if (!flushed) return { ok: false, message: this.flushError ?? "Pending goal changes have not been persisted." };
+			} else {
+				this.turn.active = false;
 			}
-			if (spec.focusToken && !this.ref.isTokenCurrent(spec.focusToken)) {
-				return { ok: false, message: `Mutation cancelled because goal ${spec.focusToken.goalId} is no longer focused in this session. The shared goal was not modified.` };
-			}
-			if (!current.taskList) {
-				return { ok: false, message: "The goal has no task list." };
-			}
-			const task = findTaskInTree(current.taskList.tasks, spec.taskId);
-			if (!task) {
-				return { ok: false, message: `Task "${spec.taskId}" not found.` };
-			}
-			if (spec.validate) {
-				const gate = spec.validate(task);
-				if (!gate.ok) return gate;
-			}
-			const updated = spec.update(task);
-			if (typeof updated === "object" && "ok" in updated && !updated.ok) return updated;
-			const updatedTask = updated as GoalTask;
-			const updatedTasks = updateTaskInTree(current.taskList.tasks, spec.taskId, () => updatedTask);
-			const mutated = sanitizeGoalPaths(ctx, {
-				...current,
-				taskList: { ...current.taskList, tasks: updatedTasks },
-				// Execution focus (§8): start sets it explicitly; completing or
-				// skipping the current task clears it.
-				currentTaskId: resolveUpdatedCurrentTaskId(spec, current.currentTaskId, updatedTask),
-				updatedAt: nowIso(),
-				revision: (current.revision ?? 0) + 1,
-			});
-			if (spec.ledger) {
-				try {
-					this.turn.ledger.push(...spec.ledger(mutated, updatedTask));
-				} catch (err) {
-					this.ref.onDiagnostic({
-						severity: "warning",
-						source: "ledger",
-						goalId: spec.taskId,
-						message: `Ledger spec error during task update: ${String(err)}`,
-					});
-				}
-			}
-			this.turn.goal = mutated;
-			this.ref.setFocused(mutated);
-			return { ok: true, goal: mutated, task: updatedTask };
 		}
 		return this.updateTaskAttempt(ctx, spec, 1);
 	}

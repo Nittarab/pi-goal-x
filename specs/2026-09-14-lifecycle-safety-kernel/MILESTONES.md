@@ -50,3 +50,15 @@ before implementation.
 Validation on this branch: check, lint, test:all 997 pass (was 993), selfcheck
 947, pack dry-run, audit 0, bench:gate:naf PASS, ranking tests OK. No version
 bump, no merge, no publish.
+
+PR: https://github.com/Nittarab/pi-goal-x/pull/1
+
+## PR B implementation
+
+- In-turn `apply`/`updateTask` flush or take the lock path before success.
+- Held lock returns `ok: false` instead of a successful buffer.
+- `refreshFocusedFromAuthoritativeFile` parses the goal file for checkpoint
+  schedule/claim, ignoring the pool snapshot.
+- Tests: held lock, missing endTurn, stale memory vs disk pause, competing writer.
+
+Validation: `npm run test:all` 998 pass.

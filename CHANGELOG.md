@@ -13,6 +13,7 @@ All notable changes to pi-goal-x are documented here.
 
 - User pause (Esc, `/goal-pause`, abort) charges elapsed active time before clearing the accounting baseline.
 - `/goal-refresh` reconciles the focused goal from disk and reapplies settings, including the tool profile, immediately.
+- Lifecycle and task mutations no longer report success from an unflushed in-turn buffer; the authoritative goal file is committed first. Automatic checkpoints re-read that file instead of a stale pool snapshot.
 
 ## [0.31.4] — 2026-09-14
 
