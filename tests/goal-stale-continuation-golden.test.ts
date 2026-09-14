@@ -397,3 +397,20 @@ test("empty no-tool run does not auto-continue after agent_settled", async () =>
 		// temp dir cleanup is best-effort.
 	}
 });
+
+ test("run work survives a text-only final turn but resets for the next run", async () => {
+ const { cwd, goal } = fixtureCwd();
+ const h = createHarness(cwd);
+ await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
+ const start = { systemPrompt: "base", prompt: "continue", systemPromptOptions: {} };
+ await h.handlers["before_agent_start"]!(start, h.ctx);
+ await markGoalWork(h);
+ await h.handlers["turn_start"]!({}, h.ctx);
+ await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
+ await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
+ assert.equal(await countCheckpoints(h), 1);
+ await h.handlers["before_agent_start"]!(start, h.ctx);
+ await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
+ await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
+ assert.equal(await countCheckpoints(h), 1, "previous run work must not authorize another checkpoint");
+ });
