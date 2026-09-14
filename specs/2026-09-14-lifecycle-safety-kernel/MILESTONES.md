@@ -82,3 +82,20 @@ Enabled Issues on `Nittarab/pi-goal-x` (they were off). Filed:
 
 1. https://github.com/Nittarab/pi-goal-x/issues/4 — Concurrent goal execution needs cross-session ownership leases.
 2. https://github.com/Nittarab/pi-goal-x/issues/5 — Do not mix pi-subagents mission status with pi-goal-x goals (goal `mtyaft58-00lozy` vs mission `dbd35a5a-a12b-4523-8ce4-39f6c818c6f4`).
+
+## Remaining risks
+
+- Default recovery cap of 5 may surprise unbounded-retry users (`networkRecovery.maxAttempts: 0`).
+- Auditor cannot run `bash` verification.
+- Immediate durable writes increase lock traffic vs the old in-turn buffer.
+- Gate flattening uses wording heuristics (gate/fibonacci/prove-one/full-matrix); true decomposition without those words still nests.
+- Cross-session leases are not implemented (issue #4).
+
+## Manual QA
+
+1. Force provider 503s: expect `recovery 1/5` then paused + `/goal-resume`.
+2. Pause after a few seconds; `activeSeconds` increases.
+3. External-edit a goal file and `disableTasks`; `/goal-refresh` applies both.
+4. Pause a `blockCompletion` goal; skip/complete with `update_goal_task`; dropping a pending id via `set_goal_tasks` refuses.
+5. Nested `prove-one` / `fix-missing` / `full-matrix`: complete `prove-one` without completing `full-matrix`; skip the unused path.
+6. `/goal-status health` shows scheduler and a dispatch reason when idle/waiting. Widget must not say running while waiting.

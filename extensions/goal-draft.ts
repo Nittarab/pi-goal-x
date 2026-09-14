@@ -230,7 +230,7 @@ export function buildProposalSummary(args: ProposalSummaryArgs): string {
 function renderProposalPlan(tasks: GoalTask[]): string[] {
 	const lines: string[] = [];
 	let index = 1;
-	for (const t of tasks) {
+	for (const t of promoteAlternativePathTasks(tasks)) {
 		lines.push(`${index}. ${t.title}`);
 		if (t.subtasks && t.subtasks.length > 0) {
 			for (const child of t.subtasks) {
@@ -240,4 +240,32 @@ function renderProposalPlan(tasks: GoalTask[]): string[] {
 		index++;
 	}
 	return lines;
+}
+
+const GATE_BLOB = /\b(gate|fibonacci|path|vs|or)\b|prove-one|fix-missing|full-matrix/i;
+
+/** True when nested children are alternative paths, not required decomposition. */
+export function isAlternativePathGate(parent: Pick<GoalTask, "id" | "title">, children: Pick<GoalTask, "id" | "title">[]): boolean {
+	if (children.length < 2) return false;
+	const blob = [parent.id, parent.title, ...children.map((child) => `${child.id} ${child.title}`)].join(" ");
+	return GATE_BLOB.test(blob);
+}
+
+/**
+ * Fibonacci-style gates become peer tasks so a non-selected path can be skipped
+ * without blocking the chosen path. True decomposition (one parent, required
+ * children, no gate wording) stays nested.
+ */
+export function promoteAlternativePathTasks(tasks: GoalTask[]): GoalTask[] {
+	const out: GoalTask[] = [];
+	for (const task of tasks) {
+		const children = task.subtasks?.length ? promoteAlternativePathTasks(task.subtasks) : undefined;
+		if (children && children.length > 0 && isAlternativePathGate(task, children)) {
+			out.push({ ...task, subtasks: undefined, lightweightSubtasks: undefined });
+			out.push(...children);
+			continue;
+		}
+		out.push(children ? { ...task, subtasks: children } : task);
+	}
+	return out;
 }

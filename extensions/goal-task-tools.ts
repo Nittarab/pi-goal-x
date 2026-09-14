@@ -15,6 +15,7 @@ import type { GoalTaskUpdateSpec } from "./goal-service.ts";
 import { goalDetails, renderGoalResult } from "./goal-format.ts";
 import { statusLabel, truncateText } from "./goal-core.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
+import { promoteAlternativePathTasks } from "./goal-draft.ts";
 import { buildTaskSummary, checkSubtasksComplete, findSubtaskDepthViolation, findTaskInTree, skipAllSubtasks } from "./goal-policy.ts";
 import { showTaskConfirmation, type TaskConfirmationResult } from "./goal-task-confirmation.ts";
 import {
@@ -120,7 +121,7 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 		return node;
 	}
 	// Both buckets were populated in input order, so sorting would repeat that work.
-	const tasks = roots.map(buildNode);
+	const tasks = promoteAlternativePathTasks(roots.map(buildNode));
 
 	// Lightweight placement: lightweight_subtasks must be on a task with children.
 	for (const item of flat) {

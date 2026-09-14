@@ -20,6 +20,18 @@ import { showTaskConfirmation } from "../extensions/goal-task-confirmation.ts";
 
 // ── Flat conversion unit tests ───────────────────────────────────────────────
 
+test("Fibonacci gate nested under prove-one becomes peer tasks", () => {
+	const result = convertFlatTasks([
+		{ id: "prove-one", title: "Prove the last GTM CLI fault is gone" },
+		{ id: "fix-missing", title: "Fix missing JSON body", parent_id: "prove-one" },
+		{ id: "full-matrix", title: "Run the full-matrix", parent_id: "prove-one" },
+	]);
+	assert.ok(result.ok);
+	if (!result.ok) return;
+	assert.deepEqual(result.tasks.map((task) => task.id), ["prove-one", "fix-missing", "full-matrix"]);
+	assert.equal(result.tasks[0]!.subtasks, undefined);
+});
+
 test("flat input converts to the same recursive tree", () => {
 	const result = convertFlatTasks([
 		{ id: "a", title: "A" },
@@ -204,6 +216,33 @@ test("set_goal_tasks cannot drop pending tasks only to bypass blockCompletion", 
 		assert.match(result.content[0].text, /cannot drop pending tasks/);
 		const goal = activeGoal(f.cwd);
 		assert.equal(goal?.taskList?.tasks.length, 2);
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("entries 1390-1395: prove-one completes while the unused full-matrix path is still pending", async () => {
+	const f = fixtureWithTasks([
+		{
+			id: "prove-one",
+			title: "Prove the last GTM CLI fault is gone",
+			status: "pending",
+			subtasks: [
+				{ id: "fix-missing", title: "Fix missing JSON body", status: "skipped", skipReason: "not this path" },
+				{ id: "full-matrix", title: "Run the full-matrix", status: "pending" },
+			],
+		},
+	]);
+	try {
+		const h = createHarness(f.cwd, f.sessionEntries);
+		await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+		const tool = h.tools.get("update_goal_task")!;
+		const result = await (tool.execute as any)("complete-gate", { task_id: "prove-one", status: "complete", evidence: "JSON body fault gone on the same cell" }, undefined, undefined, h.ctx);
+		assert.match(result.content[0].text, /prove-one/);
+		assert.doesNotMatch(result.content[0].text, /pending subtask/);
+		const goal = activeGoal(f.cwd);
+		assert.equal(goal?.taskList?.tasks[0]?.status, "complete");
+		assert.equal(goal?.taskList?.tasks[0]?.subtasks?.find((t) => t.id === "full-matrix")?.status, "pending");
 	} finally {
 		f.cleanup();
 	}

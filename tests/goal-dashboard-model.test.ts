@@ -133,6 +133,11 @@ test("status maps lifecycle states to explicit display codes", () => {
 	);
 	assert.deepEqual(deriveGoalStatus(goal({ status: "budget_limited" })), { code: "budget_limited", label: "Budget limited", footerLabel: "budget limited" });
 	assert.deepEqual(deriveGoalStatus(goal({ status: "complete" })), { code: "complete", label: "Complete", footerLabel: "complete" });
+	assert.deepEqual(
+		deriveGoalStatus(goal({ scheduler: { version: 1, owner: "s", generation: "g", used: 1, phase: "waiting", repairUsed: false, decision: { kind: "wait" }, wait: { id: "w", token: "t", reason: "poll", deadline: Date.now() + 60_000 } } })),
+		{ code: "idle", label: "Idle", footerLabel: "idle" },
+		"scheduler waiting must not display running",
+	);
 });
 
 // ---------------------------------------------------------------------------
