@@ -134,6 +134,11 @@ export class GoalRuntime {
 		return plan;
 	}
 
+	/** True when the next recovery attempt would exceed the policy cap. */
+	networkErrorRecoveryExhausted(policy?: NetworkErrorRecoveryPolicy): boolean {
+		return networkErrorBackoffPlan(this.networkErrorRetryAttempt + 1, policy) === undefined;
+	}
+
 	/** Cancel and forget all goal-level network-error recovery state. */
 	clearNetworkErrorBackoff(): void {
 		if (this.networkErrorRetryTimer) clearTimeout(this.networkErrorRetryTimer);

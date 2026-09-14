@@ -124,7 +124,13 @@ export interface GoalCore {
 	setGoal(next: GoalRecord | null, ctx: ExtensionContext, shouldPersist?: boolean, focusReason?: GoalFocusReason): void;
 	archiveCurrentGoal(ctx: ExtensionContext, reason: StopReason | undefined): GoalRecord | null;
 	stopActiveGoal(status: Exclude<GoalStatus, "active">, reason: StopReason | undefined, ctx: ExtensionContext): void;
-	pauseActiveGoal(ctx: ExtensionContext): void;
+	pauseActiveGoal(ctx: ExtensionContext, opts?: {
+		stopReason?: StopReason;
+		pauseReason?: string;
+		pauseSuggestedAction?: string;
+		notify?: string;
+		notifyLevel?: "info" | "warning";
+	}): void;
 	/** §auditor-toggle: flip the focused goal's persisted per-goal skipAuditor and record the ledger event. */
 	toggleGoalAuditor(ctx: ExtensionContext): void;
 	queueContinuation(ctx: ExtensionContext, force?: boolean): void;
@@ -826,13 +832,55 @@ export function createGoalCore(
 		}
 	}
 
-	function pauseActiveGoal(ctx: ExtensionContext): void {
+	function pauseActiveGoal(ctx: ExtensionContext, opts?: {
+		stopReason?: StopReason;
+		pauseReason?: string;
+		pauseSuggestedAction?: string;
+		notify?: string;
+		notifyLevel?: "info" | "warning";
+	}): void {
 		if (!state.goal || state.goal.status !== "active") return;
-		const pausedGoalId = state.goal.id;
+		accountProgress(ctx);
+		if (!state.goal || state.goal.status !== "active") return;
+		if (opts?.pauseReason) {
+			const stopReason = opts.stopReason ?? "agent";
+			const pauseReason = opts.pauseReason;
+			const pauseSuggestedAction = opts.pauseSuggestedAction;
+			const result = goalService.apply(ctx, {
+				reconcile: false,
+				refreshFromDisk: true,
+				mutate: (g) => ({
+					...g,
+					status: "paused" as const,
+					autoContinue: false,
+					stopReason,
+					pauseReason,
+					pauseSuggestedAction,
+					updatedAt: nowIso(),
+				}),
+				ledger: (written) => [{
+					type: "goal_paused" as const,
+					goalId: written.id,
+					reason: written.pauseReason ?? pauseReason,
+					suggestedAction: written.pauseSuggestedAction,
+					status: "paused" as const,
+					source: stopReason,
+					at: written.updatedAt,
+				}],
+			});
+			if (result.ok) {
+				clearContinuationState();
+				clearActiveAccounting();
+				goalService.flushTurn(ctx);
+				updateUI(ctx);
+			}
+			ctx.ui.notify(opts.notify ?? "Goal paused.", opts.notifyLevel ?? "warning");
+			return;
+		}
 		// User-initiated pause (Esc / aborted turn). Clear any stale agent pause reason.
 		state.goal = { ...state.goal, autoContinue: false, pauseReason: undefined, pauseSuggestedAction: undefined };
-		stopActiveGoal("paused", "user", ctx);
-		ctx.ui.notify("Goal paused.", "info");
+		stopActiveGoal("paused", opts?.stopReason ?? "user", ctx);
+		ctx.ui.notify(opts?.notify ?? "Goal paused.", opts?.notifyLevel ?? "info");
 	}
 
 	/**

@@ -28,6 +28,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { KeyId } from "@earendil-works/pi-tui";
+import { DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS } from "./network-error-backoff.ts";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -117,8 +118,8 @@ export interface GoalSettingsResolvedShape {
 	/** Issue #26: opt-in read-only blocker Oracle configuration (sparse). */
 	oracle?: GoalOracleSettingsLayer;
 	/**
-	 * Goal-level provider-error recovery backoff (sparse). maxAttempts 0 or
-	 * unset = unbounded retry (default); maxDelayMs caps the delay plateau.
+	 * Goal-level provider-error recovery backoff (sparse). Unset resolves to
+	 * five attempts; maxAttempts 0 = unbounded; maxDelayMs caps the delay plateau.
 	 */
 	networkRecovery?: GoalNetworkRecoverySettingsLayer;
 }
@@ -148,7 +149,7 @@ export interface ResolvedGoalOracleSettings {
 	maxFailedAttemptsPerBlocker: number;
 }
 
-/** Sparse per-leaf network-recovery settings (maxAttempts 0 = unbounded). */
+/** Sparse per-leaf network-recovery settings (0 = unbounded; unset default is 5). */
 export interface GoalNetworkRecoverySettingsLayer {
 	maxAttempts?: number;
 	maxDelayMs?: number;
@@ -811,7 +812,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		envValue: envInt("PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS"),
 		projectValue: project.layer.networkRecovery?.maxAttempts,
 		globalValue: global.layer.networkRecovery?.maxAttempts,
-		defaultValue: 0,
+		defaultValue: DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS,
 		envVar: "PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS",
 	}));
 	const networkRecoveryMaxDelayMs = track("networkRecovery.maxDelayMs", resolveLeaf<number>({
@@ -1251,7 +1252,7 @@ export function effectiveSettingsReport(cwd: string, env: NodeJS.ProcessEnv = pr
 		{ key: "maxAutonomousRuns", label: "autonomous run allowance", format: () => snapshot.value.maxAutonomousRuns === 0 ? "0 (disabled)" : String(snapshot.value.maxAutonomousRuns ?? "unlimited (default)") },
 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", format: () => String(snapshot.value.stallTimeoutMinutes) },
 		{ key: "objectiveMaxChars", label: "max objective length (0 = none)", format: () => String(snapshot.value.objectiveMaxChars) },
-		{ key: "networkRecovery", label: "network recovery attempts (0 = unbounded)", format: () => String(snapshot.value.networkRecovery?.maxAttempts ?? 0) },
+		{ key: "networkRecovery", label: "network recovery attempts (default 5; 0 = unbounded)", format: () => String(snapshot.value.networkRecovery?.maxAttempts ?? DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS) },
 		{ key: "networkRecovery", label: "network recovery max delay (ms)", format: () => String(snapshot.value.networkRecovery?.maxDelayMs ?? DEFAULT_NETWORK_RECOVERY_MAX_DELAY_MS) },
 		{ key: "keybindings", label: "dashboard keybindings", format: () => `${snapshot.value.keybindings!.dashboard.toggleExpand}, ${snapshot.value.keybindings!.dashboard.scrollUp}, ${snapshot.value.keybindings!.dashboard.scrollDown}` },
 	];

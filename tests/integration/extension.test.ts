@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 
 import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import goalExtension from "../../extensions/goal.ts";
+import type { GoalCore } from "../../extensions/goal-state.ts";
 import { createGoal, goalFocusDetails } from "../../extensions/goal-record.ts";
 import { activePathForGoal, parseGoalFile, serializeGoalFile, writeActiveGoalFile } from "../../extensions/storage/goal-files.ts";
 import { goalLedgerPath } from "../../extensions/goal-ledger.ts";
@@ -25,6 +26,7 @@ interface Harness {
 	tools: Map<string, ToolDefinition>;
 	commands: Map<string, any>;
 	ctx: ExtensionContext;
+	core: GoalCore;
 	notifies: Array<{ msg: string; level: string }>;
 	activeToolsHistory: string[][];
 	terminalInputHandler: ((data: string) => unknown) | null;
@@ -92,6 +94,7 @@ function createHarness(options: HarnessOptions): Harness {
 	return {
 		handlers, tools, commands, ctx, notifies, activeToolsHistory,
 		statusCalls, widgetCalls,
+		core: (pi as unknown as { _goalCore: GoalCore })._goalCore,
 		get terminalInputHandler() { return terminalInputHandler; },
 	};
 }
@@ -244,6 +247,31 @@ describe("five-tool handler integration", () => {
 			await h.commands.get("goal-refresh")?.handler("", h.ctx);
 			const again = h.notifies.at(-1)?.msg ?? "";
 			assert.match(again, /no changes detected/);
+		} finally {
+			f.cleanup();
+		}
+	});
+
+	it("/goal-refresh applies focused goal and settings immediately", async () => {
+		const f = fixture();
+		try {
+			writeFileSync(path.join(f.cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ disableTasks: false }), "utf8");
+			const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries });
+			await start(h);
+			assert.equal(h.core.state.goal?.id, f.goal.id);
+			assert.equal(h.core.tasksEnabled, true);
+
+			const updated = { ...f.goal, objective: "Externally refreshed objective", updatedAt: new Date().toISOString() };
+			writeFileSync(path.join(f.cwd, f.goal.activePath ?? ""), serializeGoalFile(updated), "utf8");
+			writeFileSync(path.join(f.cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ disableTasks: true }), "utf8");
+
+			const toolsBefore = h.activeToolsHistory.at(-1) ?? [];
+			await h.commands.get("goal-refresh")?.handler("", h.ctx);
+			assert.equal(h.core.state.goal?.objective, "Externally refreshed objective");
+			assert.equal(h.core.tasksEnabled, false);
+			const toolsAfter = h.activeToolsHistory.at(-1) ?? toolsBefore;
+			assert.equal(toolsAfter.includes("set_goal_tasks"), false, "disableTasks must reinstall the three-tool profile");
+			assert.equal(toolsAfter.includes("update_goal_task"), false);
 		} finally {
 			f.cleanup();
 		}

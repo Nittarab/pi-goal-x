@@ -303,7 +303,7 @@ test("lifecycle: provider-initiated abort routes into recovery instead of pausin
 
 		assert.match(
 			h.notifications.at(-1)?.message ?? "",
-			/Retrying the goal in \d+s \(recovery 1, unbounded\)/,
+			/Retrying the goal in \d+s \(recovery 1\/5\)/,
 			"a provider-initiated abort without a user abort signal must engage recovery",
 		);
 	} finally {
@@ -350,7 +350,7 @@ test("lifecycle: full real event ordering (message_end → turn_end → agent_en
 
 		assert.match(
 			h.notifications.at(-1)?.message ?? "",
-			/Retrying the goal in \d+s \(recovery 1, unbounded\)/,
+			/Retrying the goal in \d+s \(recovery 1\/5\)/,
 			"recovery must engage through the full real event ordering",
 		);
 	} finally {
@@ -401,7 +401,8 @@ function lastNotification(h: ReturnType<typeof createHarness>): string {
 	return h.notifications.at(-1)?.message ?? "";
 }
 
-test("lifecycle: unbounded recovery keeps retrying past the old 5-attempt cap", async () => {
+test("lifecycle: unbounded recovery keeps retrying past the default 5-attempt cap", async () => {
+	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS = "0";
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
 	const { cwd, goal } = fixtureCwd();
 	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
@@ -428,6 +429,7 @@ test("lifecycle: unbounded recovery keeps retrying past the old 5-attempt cap", 
 			await sleep(80);
 		}
 	} finally {
+		delete process.env.PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS;
 		delete process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS;
 	}
 });
@@ -462,9 +464,11 @@ test("lifecycle: configured bounded cap exhausts with a resume hint instead of r
 		await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
 		assert.match(
 			lastNotification(h),
-			/persisted after all recovery attempts\. The goal remains active/,
-			"exhaustion must stop the loop with a resume hint",
+			/persisted after all recovery attempts\. The goal is paused/,
+			"exhaustion must stop the loop with a resumable pause",
 		);
+		assert.equal(h.core.state.goal?.status, "paused", "exhausted recovery must persist a paused goal");
+		assert.match(h.core.state.goal?.pauseReason ?? "", /exhausted after 2 attempts/);
 		assert.equal(await countCheckpoints(h), checkpointsBeforeExhaustion, "exhausted recovery must not deliver a continuation");
 	} finally {
 		delete process.env.PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS;
@@ -508,8 +512,58 @@ test("lifecycle: a successful turn resets the recovery counter and clears pendin
 			messages: [{ role: "assistant", stopReason: "error", errorMessage: REPORTED_503_MESSAGE }],
 		}, idleCtx(h.ctx));
 		await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
-		assert.match(lastNotification(h), /\(recovery 1, unbounded\)/, "counter restarted");
+		assert.match(lastNotification(h), /\(recovery 1\/5\)/, "counter restarted");
 	} finally {
 		delete process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS;
 	}
+});
+
+test("lifecycle: default five-attempt cap pauses with a resume hint", async () => {
+	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
+	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
+	const h = createHarness(cwd);
+	try {
+		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
+		await h.handlers["before_agent_start"]!({
+			systemPrompt: "base",
+			prompt: "user typed: continue",
+			systemPromptOptions: {},
+		}, h.ctx);
+
+		for (let attempt = 1; attempt <= 5; attempt++) {
+			await h.handlers["agent_end"]!({
+				messages: [{ role: "assistant", stopReason: "error", errorMessage: REPORTED_503_MESSAGE }],
+			}, idleCtx(h.ctx));
+			await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
+			assert.match(lastNotification(h), new RegExp(`recovery ${attempt}/5`), `default cycle ${attempt}`);
+			await sleep(80);
+		}
+
+		await h.handlers["agent_end"]!({
+			messages: [{ role: "assistant", stopReason: "error", errorMessage: REPORTED_503_MESSAGE }],
+		}, idleCtx(h.ctx));
+		await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
+		assert.equal(h.core.state.goal?.status, "paused");
+		assert.match(h.core.state.goal?.pauseReason ?? "", /exhausted after 5 attempts/);
+		assert.match(lastNotification(h), /The goal is paused/);
+	} finally {
+		delete process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS;
+	}
+});
+
+test("lifecycle: user pause charges elapsed active seconds first", async () => {
+	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
+	const h = createHarness(cwd);
+	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
+	h.core.beginAccounting();
+	await sleep(1100);
+	const before = h.core.state.goal?.usage.activeSeconds ?? 0;
+	h.core.pauseActiveGoal(h.ctx);
+	assert.equal(h.core.state.goal?.status, "paused");
+	assert.ok(
+		(h.core.state.goal?.usage.activeSeconds ?? 0) >= before + 1,
+		"pause must persist the open elapsed interval",
+	);
 });

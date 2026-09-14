@@ -60,6 +60,22 @@ export function invalidateGoalPoolCache(): void {
 	goalPoolCache.clear();
 }
 
+/**
+ * Drop the persisted pool snapshot and per-file parse cache for this cwd so
+ * the next pool read rescans goal files. `/goal-refresh` uses this to pick up
+ * in-place external edits that do not change the goals-dir mtime.
+ */
+export function invalidatePersistedGoalPoolSnapshot(ctx: GoalFileContext): void {
+	const root = path.resolve(ctx.cwd, GOALS_DIR);
+	goalPoolCache.delete(root);
+	goalDirListingCache.delete(root);
+	for (const filePath of [...goalFileParseCache.keys()]) {
+		if (filePath === root || filePath.startsWith(root + path.sep)) goalFileParseCache.delete(filePath);
+	}
+	try { fs.unlinkSync(poolSnapshotPath(root)); } catch { /* missing snapshot is fine */ }
+	try { fs.unlinkSync(poolSnapshotLegacyPath(root)); } catch { /* missing snapshot is fine */ }
+}
+
 function invalidateGoalPathCaches(filePath: string): void {
 	goalFileParseCache.delete(filePath);
 }

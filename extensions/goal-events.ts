@@ -559,11 +559,15 @@ export function registerGoalEvents(core: GoalCore): void {
 			);
 			return;
 		}
-		// Only reachable under a configured bounded cap (maxAttempts > 0).
-		ctx.ui.notify(
-			"Provider network errors persisted after all recovery attempts. The goal remains active; resume it when the provider is healthy.",
-			"warning",
-		);
+		if (!core.runtime.networkErrorRecoveryExhausted(policy)) return;
+		const attempts = policy?.maxAttempts && policy.maxAttempts > 0 ? policy.maxAttempts : recovery?.maxAttempts;
+		core.pauseActiveGoal(ctx, {
+			stopReason: "agent",
+			pauseReason: `Provider network recovery exhausted${typeof attempts === "number" && attempts > 0 ? ` after ${attempts} attempts` : ""}.`,
+			pauseSuggestedAction: "Run /goal-resume when the provider is healthy.",
+			notify: "Provider network errors persisted after all recovery attempts. The goal is paused; resume it when the provider is healthy.",
+			notifyLevel: "warning",
+		});
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {

@@ -4,6 +4,16 @@ All notable changes to pi-goal-x are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Provider/network recovery is finite by default (5 attempts on the existing delay ladder). `networkRecovery.maxAttempts` 0 remains an unbounded opt-in. Exhaustion pauses the goal with a resume hint instead of leaving it active.
+- Isolated completion auditor sessions no longer receive `bash`; tools are `read`, `grep`, `find`, and `ls` only.
+
+### Fixed
+
+- User pause (Esc, `/goal-pause`, abort) charges elapsed active time before clearing the accounting baseline.
+- `/goal-refresh` reconciles the focused goal from disk and reapplies settings, including the tool profile, immediately.
+
 ## [0.31.4] — 2026-09-14
 
 ### Changed

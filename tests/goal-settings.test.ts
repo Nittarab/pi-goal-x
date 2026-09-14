@@ -18,6 +18,7 @@ import {
 	parseSettingsLayer,
 	loadGoalSettingsFileConfig,
 	loadGoalSettings,
+	invalidateGoalSettingsCache,
 	saveGoalSettingsFileConfig,
 	effectiveSettingsReport,
 	formatGoalKeybinding,
@@ -296,7 +297,7 @@ test("parseGoalSettings: networkRecovery accepts valid layers and rejects invali
 	assert.deepEqual(parseGoalSettings({ networkRecovery: "nope" }), {}, "non-object rejected");
 });
 
-test("loadGoalSettings: networkRecovery defaults to unbounded and honors file + env layers", () => {
+test("loadGoalSettings: networkRecovery defaults to five attempts and honors file + env layers", () => {
 	withTempDir((dir) => {
 		const configPath = goalSettingsPath(dir);
 		fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -307,11 +308,14 @@ test("loadGoalSettings: networkRecovery defaults to unbounded and honors file + 
 			{ maxAttempts: 10, maxDelayMs: 20_000 },
 			"env vars override file",
 		);
+		fs.writeFileSync(configPath, JSON.stringify({ networkRecovery: { maxAttempts: 0 } }), "utf8");
+		invalidateGoalSettingsCache();
+		assert.deepEqual(loadGoalSettings(dir, {}).networkRecovery, { maxAttempts: 0, maxDelayMs: 80_000 }, "explicit 0 remains unbounded");
 	});
 	assert.deepEqual(loadGoalSettings("/tmp/does-not-exist", {}).networkRecovery, {
-		maxAttempts: 0,
+		maxAttempts: 5,
 		maxDelayMs: 80_000,
-	}, "unset resolves to unbounded default policy");
+	}, "unset resolves to the finite default policy");
 });
 
 test("saveGoalSettingsFileConfig: task keybindings round-trip", () => {
