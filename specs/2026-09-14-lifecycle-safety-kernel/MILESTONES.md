@@ -78,8 +78,7 @@ PR: https://github.com/Nittarab/pi-goal-x/pull/3
 
 ## Issues (step 6)
 
-GitHub Issues are **disabled** on `Nittarab/pi-goal-x` (`gh issue create` refused).
-Drafts to file when Issues are enabled:
+Enabled Issues on `Nittarab/pi-goal-x` (they were off). Filed:
 
-1. **Concurrent goal execution needs cross-session ownership leases.** Scheduler owner/generation is same-process, not a cross-process lease. Two sessions can still race before ownership is durable.
-2. **Do not mix pi-subagents mission status with pi-goal-x goals.** Incident goal `mtyaft58-00lozy` vs mission `dbd35a5a-a12b-4523-8ce4-39f6c818c6f4`. Do not misattribute mission notices to pi-goal-x.
+1. https://github.com/Nittarab/pi-goal-x/issues/4 — Concurrent goal execution needs cross-session ownership leases.
+2. https://github.com/Nittarab/pi-goal-x/issues/5 — Do not mix pi-subagents mission status with pi-goal-x goals (goal `mtyaft58-00lozy` vs mission `dbd35a5a-a12b-4523-8ce4-39f6c818c6f4`).
