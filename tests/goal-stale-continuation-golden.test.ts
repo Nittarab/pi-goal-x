@@ -289,7 +289,10 @@ test("provider-error guard: normal work turn still queues a continuation", async
 		await h.handlers["tool_execution_end"]!({}, h.ctx);
 		await h.handlers["turn_end"]!({ message: { role: "assistant", content: [{ type: "text", text: "done" }] } }, idleCtx(h.ctx));
 
-		assert.equal(await countCheckpoints(h), 1, "normal work turn must queue a continuation");
+		assert.equal(await countCheckpoints(h), 0, "normal work waits for settlement");
+		await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
+		await h.handlers.agent_settled!({}, idleCtx(h.ctx));
+		assert.equal(await countCheckpoints(h), 1, "normal work run must queue a continuation");
 	} finally {
 		// temp dir cleanup is best-effort.
 	}
@@ -414,3 +417,77 @@ test("empty no-tool run does not auto-continue after agent_settled", async () =>
  await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
  assert.equal(await countCheckpoints(h), 1, "previous run work must not authorize another checkpoint");
  });
+
+test("hygiene runs wait after settlement, repeat at the deadline, and reset after write work", async (t) => {
+	const { cwd, goal } = fixtureCwd();
+	const h = createHarness(cwd);
+	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const ctx = idleCtx(h.ctx);
+	const checkpoints = () => h.sentMessages.filter(m => (m.details as any)?.kind === "checkpoint").length;
+	const finish = async () => {
+		await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, ctx);
+		await h.handlers.agent_settled!({}, ctx);
+	};
+	for (const toolName of ["read", "grep", "find", "ls", "update_goal_task", "update_goal", "write", "read"]) {
+		await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
+		await h.handlers.turn_start!({}, ctx);
+		await h.handlers.tool_call!({ toolName, args: { path: "README.md" } }, ctx);
+		await h.handlers.tool_execution_end!({}, ctx);
+		await h.handlers.turn_end!({ message: { role: "assistant", stopReason: "end_turn" } }, ctx);
+		const before = checkpoints();
+		t.mock.timers.tick(300_000);
+		assert.equal(checkpoints(), before, "turn_end cannot schedule before settlement");
+		await h.handlers.turn_start!({}, ctx); // final text-only turn must retain earlier work
+		await finish();
+		if (toolName === "write") {
+			t.mock.timers.tick(1);
+		} else {
+			t.mock.timers.tick(299_999);
+			assert.equal(checkpoints(), before, toolName);
+			t.mock.timers.tick(1);
+		}
+		assert.equal(checkpoints(), before + 1, toolName);
+	}
+	await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
+	await finish();
+	const before = checkpoints();
+	t.mock.timers.tick(300_000);
+	assert.equal(checkpoints(), before, "empty runs still stop");
+	await h.handlers.session_shutdown!({}, ctx);
+});
+
+test("user or background completion input supersedes a cooldown without duplicate delivery", async (t) => {
+	const { cwd, goal } = fixtureCwd();
+	const h = createHarness(cwd);
+	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const ctx = idleCtx(h.ctx);
+	for (const prompt of ["User: continue now", "Background workflow completed: here is the result"]) {
+		await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
+		await h.handlers.tool_call!({ toolName: "read", args: { path: "README.md" } }, ctx);
+		await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, ctx);
+		await h.handlers.agent_settled!({}, ctx);
+		t.mock.timers.tick(1000);
+		await h.handlers.before_agent_start!({ systemPrompt: "base", prompt }, ctx);
+		t.mock.timers.tick(300_000);
+		assert.equal(h.sentMessages.filter(m => (m.details as any)?.kind === "checkpoint").length, 0);
+	}
+	await h.handlers.session_shutdown!({}, ctx);
+});
+
+test("explicit zero cooldown keeps read-only follow-ups immediate", async (t) => {
+	const { cwd, goal } = fixtureCwd();
+	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ continuationIdleDelayMs: 0 }));
+	const h = createHarness(cwd);
+	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const ctx = idleCtx(h.ctx);
+	await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
+	await h.handlers.tool_call!({ toolName: "read", args: { path: "README.md" } }, ctx);
+	await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, ctx);
+	await h.handlers.agent_settled!({}, ctx);
+	t.mock.timers.tick(1);
+	assert.equal(h.sentMessages.filter(m => (m.details as any)?.kind === "checkpoint").length, 1);
+	await h.handlers.session_shutdown!({}, ctx);
+});

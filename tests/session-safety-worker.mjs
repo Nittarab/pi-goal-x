@@ -21,6 +21,8 @@ let core;
 let settled = false;
 const transcript = [];
 const child = mode.startsWith('child-');
+const hygiene = mode === 'hygiene';
+if (hygiene) process.env.PI_GOAL_CONTINUATION_IDLE_DELAY_MS = '1000';
 const history = mode.startsWith('history-');
 const api = mode === 'history-responses' ? 'openai-responses' : 'openai-completions';
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
@@ -42,7 +44,10 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 	const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ id: 'fixture-response', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
-	if (!child && !history && calls.length === 1) {
+	if (hygiene && calls.length % 2 === 1) {
+		send({ role: 'assistant', tool_calls: [{ index: 0, id: `read_${calls.length}`, type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'sample.txt' }) } }] });
+		send({}, 'tool_calls');
+	} else if (!hygiene && !child && !history && calls.length === 1) {
 		send({ role: 'assistant', tool_calls: [
 			{ index: 0, id: 'call_info', type: 'function', function: { name: 'get_goal', arguments: '{}' } },
 			{ index: 1, id: 'call_complete', type: 'function', function: { name: 'update_goal', arguments: '{"status":"complete"}' } },
@@ -87,8 +92,9 @@ try {
 	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 	let manager = SessionManager.create(cwd, path.join(work, 'sessions'));
 	let goal;
+	if (hygiene) fs.writeFileSync(path.join(cwd, 'sample.txt'), 'Nothing has changed.');
 	if (!history) {
-		goal = createGoal({ objective: 'Finish the delegated assignment with tested evidence.', autoContinue: child, sisyphus: false });
+		goal = createGoal({ objective: 'Finish the delegated assignment with tested evidence.', autoContinue: child || hygiene, sisyphus: false });
 		if (mode === 'skip') goal.skipAuditor = true;
 		writeActiveGoalFile({ cwd }, goal);
 		if (mode !== 'child-fresh') manager.appendCustomEntry('pi-goal-focus', goalFocusDetails(goal.id, 'created'));
@@ -132,7 +138,27 @@ try {
 	await session.bindExtensions({});
 	await session.prompt(child ? 'Complete only this delegated assignment.' : 'Complete the goal.');
 	assert.ok(settled);
-	if (child) {
+	if (hygiene) {
+		assert.equal(calls.length, 2, 'read and final reply finish within one run');
+		await delay(200);
+		assert.equal(calls.length, 2, 'no round-trip checkpoint after a hygiene-only run');
+		const deadline = Date.now() + 5000;
+		while ((calls.length < 4 || !session.isIdle) && Date.now() < deadline) await delay(20);
+		assert.equal(calls.length, 4, 'the deadline eventually starts a new run');
+		assert.ok(session.isIdle);
+		await session.prompt('User asks for a fresh inspection now.');
+		assert.equal(calls.length, 6, 'user input runs immediately during cooldown');
+		await delay(200);
+		assert.equal(calls.length, 6, 'user input does not leave a duplicate checkpoint');
+		core.pi.sendMessage({ customType: 'fixture-background', content: 'Background workflow finished. Inspect its result.', display: false }, { triggerTurn: true, deliverAs: 'followUp' });
+		const producerDeadline = Date.now() + 5000;
+		while ((calls.length < 8 || !session.isIdle) && Date.now() < producerDeadline) await delay(20);
+		assert.equal(calls.length, 8, 'producer follow-up wakes the goal during cooldown');
+		assert.ok(session.isIdle);
+		await delay(200);
+		assert.equal(calls.length, 8, 'producer wake does not leave a duplicate checkpoint');
+		core.clearContinuationState();
+	} else if (child) {
 		assert.equal(core, undefined);
 		assert.equal(calls.length, 1, 'one assignment must produce exactly one request');
 		assert.ok(!session.getActiveToolNames().some(name => ['create_goal', 'get_goal', 'update_goal', 'set_goal_tasks', 'update_goal_task'].includes(name)));

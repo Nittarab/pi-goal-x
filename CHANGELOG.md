@@ -2,6 +2,12 @@
 
 All notable changes to pi-goal-x are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **Hygiene-only continuation loops (#55)** — automatic follow-ups after read/search/bookkeeping-only runs wait five minutes by default. Configure `continuationIdleDelayMs` or `PI_GOAL_CONTINUATION_IDLE_DELAY_MS` (`0` restores immediate scheduling). Active tool chains, write/edit/bash runs, explicit kickoff and network recovery retain their timing. Scheduling waits for agent settlement; user and background completion messages supersede the sleeping checkpoint.
+
 ## [0.31.3] — 2026-09-14
 
 ### Fixed

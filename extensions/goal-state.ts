@@ -124,7 +124,7 @@ export interface GoalCore {
 	pauseActiveGoal(ctx: ExtensionContext): void;
 	/** §auditor-toggle: flip the focused goal's persisted per-goal skipAuditor and record the ledger event. */
 	toggleGoalAuditor(ctx: ExtensionContext): void;
-	queueContinuation(ctx: ExtensionContext, force?: boolean): void;
+	queueContinuation(ctx: ExtensionContext, force?: boolean, delayMs?: number): void;
 	flushGoalTransaction(ctx: ExtensionContext): void;
 	replaceGoal(config: GoalCreationConfig, ctx: ExtensionContext, startNow?: boolean, verificationContract?: string, tokenBudget?: number): void;
 	/** F5: bump the last-activity timestamp (called on real work events). */
@@ -861,9 +861,9 @@ export function createGoalCore(
 		goalService.flushTurn(ctx);
 	}
 
-	function queueContinuation(ctx: ExtensionContext, force = false): void {
+	function queueContinuation(ctx: ExtensionContext, force = false, delayMs = 0): void {
 		if (!state.goal) return;
-		runtime.queueContinuation(ctx, state.goal, force);
+		runtime.queueContinuation(ctx, state.goal, force, delayMs);
 	}
 
 	function enterGoalModal(): void {

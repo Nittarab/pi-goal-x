@@ -82,8 +82,9 @@ export class GoalRuntime {
 	 * Schedule the next auto-continuation for the focused active goal.
 	 * Only `active` + autoContinue goals can queue. `force` bypasses the
 	 * already-queued/scheduled dedup (used right after creation/resume).
+	 * delayMs delays this one delivery; busy polling does not restart the cooldown.
 	 */
-	queueContinuation(ctx: ExtensionContext, goal: GoalRecord, force = false): void {
+	queueContinuation(ctx: ExtensionContext, goal: GoalRecord, force = false, delayMs = 0): void {
 		if (goal.status !== "active" || !goal.autoContinue) return;
 		const goalId = goal.id;
 		if (!force && this.continuationPendingFor(goalId)) return;
@@ -94,6 +95,8 @@ export class GoalRuntime {
 		} catch {
 			return;
 		}
+		// force bypasses deduplication, never the explicitly requested cooldown.
+		delay = Math.max(delay, Number.isFinite(delayMs) ? Math.min(2_147_483_647, Math.max(0, delayMs)) : 0);
 		this.continuationScheduledFor = goalId;
 		this.continuationTimer = setTimeout(() => this.sendQueuedContinuation(ctx, goalId), delay);
 		this.continuationTimer.unref?.();

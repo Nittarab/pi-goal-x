@@ -10,7 +10,6 @@ import {
 	isAbortedAssistantMessage,
 	isErrorAssistantMessage,
 	isMeaningfulProgressToolCall,
-	isToolUseAssistantMessage,
 } from "./goal-format.ts";
 import { buildCompactionSummary, buildPostCompactionGoalDelta } from "./goal-compaction.ts";
 import { latestAuditorResultForGoal, readGoalLedger, goalRuntimeEvents, invalidateGoalLedgerCache } from "./goal-ledger.ts";
@@ -91,6 +90,8 @@ export function registerGoalEvents(core: GoalCore): void {
 	// new run. agent_settled must not auto-continue a run that did no goal work, or
 	// empty replies ("Paused. No action.") loop forever.
 	let goalWorkThisRun = false;
+	// A tool attempt is sufficient; shell commands are opaque, not proof of mutation.
+	let fastContinuationThisRun = false;
 
 	pi.on("context", async (event) => {
 		const filtered = filterGoalSessionContext(event.messages);
@@ -137,6 +138,7 @@ export function registerGoalEvents(core: GoalCore): void {
 		if (isMeaningfulProgressToolCall(event.toolName, asRecord(event)?.args)) {
 			core.goalWorkToolCalledThisTurn = true;
 			goalWorkThisRun = true;
+			if (["write", "edit", "bash"].includes(event.toolName)) fastContinuationThisRun = true;
 			// Issue #26: record a meaningful work attempt against armed Oracle
 			// advice. get_goal / echo-only reads are excluded upstream by
 			// isMeaningfulProgressToolCall.
@@ -252,17 +254,7 @@ export function registerGoalEvents(core: GoalCore): void {
 			core.updateUI(ctx);
 		}
 
-		// If the assistant ended a turn without queuing more tool calls, push a continuation right away.
-		// #4: only queue if some real work was done this turn — otherwise the model is
-		// just chatting and we should not keep firing turns on noise.
-		if (
-			!isToolUseAssistantMessage(message)
-			&& core.state.goal?.status === "active"
-			&& core.state.goal.autoContinue
-			&& core.goalWorkToolCalledThisTurn
-		) {
-			core.queueContinuation(ctx);
-		}
+		// Ordinary continuations are scheduled only after agent_settled.
 		core.goalService.endTurn(ctx); // P1-3: single flush (lock + write + ledger batch)
 	});
 
@@ -346,6 +338,7 @@ export function registerGoalEvents(core: GoalCore): void {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		goalWorkThisRun = false;
+		fastContinuationThisRun = false;
 		core.advanceTurnSeq();
   if (!hasActiveDraft(core)) core.installGoalToolProfile(!loadGoalSettings(ctx.cwd).disableTasks);
 		const currentSystemPrompt = () => ctx.getSystemPrompt?.() || event.systemPrompt;
@@ -550,7 +543,9 @@ export function registerGoalEvents(core: GoalCore): void {
 		const networkErrorGoalId = networkErrorRecoveryAfterSettleFor;
 		networkErrorRecoveryAfterSettleFor = null;
 		if (goalId && core.isActionableContinuationGoal(goalId)) {
-			core.queueContinuation(ctx, true);
+			const delayMs = fastContinuationThisRun ? 0 : loadGoalSettings(ctx.cwd).continuationIdleDelayMs ?? 300_000;
+			core.queueContinuation(ctx, true, delayMs);
+			if (delayMs > 0) ctx.ui.notify(`Goal follow-up in ${Math.ceil(delayMs / 1000)}s after read-only or bookkeeping work. New messages can continue it sooner.`, "info");
 			return;
 		}
 		if (!networkErrorGoalId || !core.isActionableContinuationGoal(networkErrorGoalId)) return;

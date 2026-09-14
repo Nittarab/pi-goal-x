@@ -115,12 +115,15 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 
 | Setting | What it controls |
 | --- | --- |
+| Continuation idle delay (`continuationIdleDelayMs`) | Wait before the next automatic run after only reads, searches or goal bookkeeping. Default: `300000` ms (five minutes). `0` restores immediate continuation. Environment override: `PI_GOAL_CONTINUATION_IDLE_DELAY_MS`. |
 | Task tracking (`disableTasks`) | Turn task lists on or off. Set to `true` to disable them. |
 | Subtask depth (`subtaskDepth`) | Limit how many levels of subtasks the agent can create. |
 | Completion requirements (`disableContracts`) | Turn explicit goal and task completion requirements on or off. Set to `true` to disable them. |
 | Auditor disabled | Turn off independent completion review. |
 | Auditor provider, model, and thinking level | Choose which model reviews completed work and its reasoning effort. |
 
+
+The continuation delay applies after an agent run settles; it does not interrupt tool chains within a run. Runs containing `write`, `edit`, or `bash` continue immediately. Shell commands are treated as work attempts, so this is not a detector for no-op shell commands. Creation, resume and provider-error recovery keep their existing timing. New user messages and background completion follow-ups run immediately and cancel the sleeping checkpoint. The delay requires the session to remain open; it does not schedule a durable wakeup. Valid values are whole milliseconds from `0` to `2147483647`.
 
 ## License
 
