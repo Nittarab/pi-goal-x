@@ -423,13 +423,16 @@ test("legacy-v1 restores pre-PR-E wording but never full checkpoint persistence"
 
 test("allowance configuration refreshes cached guidance without bloating disabled prompts", () => {
 	const current = goal();
-	const off = goalPrompt(current);
+	const off = goalPrompt(current, { maxAutonomousRuns: 0 });
 	assert.match(off, /agents may set it/);
 	assert.doesNotMatch(off, /Saved decisions terminate/);
 	const on = goalPrompt(current, { maxAutonomousRuns: 4 });
 	assert.match(on, /Saved decisions terminate/);
 	assert.ok(on.length - off.length < 250);
-	assert.equal(goalPrompt(current), off, "disabling again must not reuse enabled guidance");
+	const defaults = goalPrompt(current);
+	assert.match(defaults, /Saved decisions terminate/);
+	assert.match(defaults, /0\/unlimited/);
+	assert.equal(goalPrompt(current, { maxAutonomousRuns: 0 }), off, "disabling again must not reuse enabled guidance");
 	const zero = goalPrompt(current, { maxAutonomousRuns: 0 });
 	assert.doesNotMatch(zero, /Saved decisions terminate/);
 	assert.match(zero, /0\/0 \(automatic continuation disabled\)/);

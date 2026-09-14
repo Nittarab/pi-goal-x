@@ -44,3 +44,15 @@ The first context gate run detected the intentional three-character prompt clari
 Validation: all 989 tests pass (including both real SDK scheduler fixtures), with zero failures/skips. TypeScript, ESLint, manifest self-check (941 unit tests), context gate, six real SDK provider-payload cross-checks and git diff whitespace checks pass. No package version or dependency change.
 
 User subsequently requested no README changes. Updated PRODUCT then TECH and restored README.md exactly to the pre-review PR version. Code and tests are unchanged by this documentation-only correction.
+
+## Automatic continuation by default
+
+User approved restoring automatic continuation by default while retaining the scheduler in every mode. Updated PRODUCT then TECH: absent at both settings scopes now means unlimited automatic runs, zero disables them, and a positive value caps them. The README remains unchanged as requested.
+
+Kept the resolved limit optional throughout dispatch availability, kickoff and resume; only explicit zero disables execution. Uncapped runs still increment durable consumption, so adding/removing a ceiling never renews usage. Settings, status and tool summaries show unlimited explicitly. Default and capped prompts both include ready/wait guidance; zero keeps the shorter disabled guidance. Removed the tool description's obsolete requirement for a configured allowance.
+
+Added default creation/resume, uncapped consumption and dynamic-limit tests, plus an actual SDK no-settings variant covering ready continuation, event waiting, one repair, and stale checkpoint rejection. The first full suite found one historical empty-run expectation that assumed absent settings disabled scheduling. Updated it to exercise admission of exactly one repair, then verify pause without further dispatches. Network-backoff deadline coverage also runs without a cap.
+
+Remeasured context after changing the default policy and shortening the tool description. All 24 fixtures retain their semantic counts; the active 10-task fixture adds 1,141 characters versus pre-PR main, and total serialized size is 261,018 characters. Updated CONTEXT.md, CONTEXT-AFTER.json and the exact baseline without relaxing invariants.
+
+Validation: all 993 tests pass, zero failures/skips; TypeScript, ESLint, manifest self-check (944 unit tests), context gate, six real SDK payload cross-checks and whitespace checks pass. README.md matches the pre-review PR exactly. No version/dependency change, merge or release.

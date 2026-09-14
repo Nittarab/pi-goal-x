@@ -22,8 +22,11 @@ export class GoalScheduler {
 	constructor(core: GoalCore) { this.core = core; }
 
 	private owner(ctx: ExtensionContext): string { return ctx.sessionManager.getSessionId() || "unknown-session"; }
-	private limit(ctx: ExtensionContext): number { return loadGoalSettings(ctx.cwd).maxAutonomousRuns ?? 0; }
-	private available(ctx: ExtensionContext, s: GoalSchedulerState): boolean { return s.used < this.limit(ctx); }
+	private limit(ctx: ExtensionContext): number | undefined { return loadGoalSettings(ctx.cwd).maxAutonomousRuns; }
+	private available(ctx: ExtensionContext, s: GoalSchedulerState): boolean {
+		const limit = this.limit(ctx);
+		return limit === undefined || s.used < limit;
+	}
 	private state(ctx: ExtensionContext, goal: GoalRecord): GoalSchedulerState {
 		const s = goal.scheduler ?? newGoalScheduler(this.owner(ctx));
 		if (s.owner !== this.owner(ctx) || s.phase === "interrupted") throw new Error("Goal scheduling belongs to another session or was interrupted. Use /goal-resume to take ownership.");
@@ -73,7 +76,7 @@ export class GoalScheduler {
 		ctx.ui.notify(reason, "warning");
 	}
 	private allowanceReason(ctx: ExtensionContext): string {
-		return this.limit(ctx) ? "Autonomous-run allowance exhausted. Increase maxAutonomousRuns and use /goal-resume to renew." : "No maxAutonomousRuns allowance configured. Configure a positive limit in /goal-settings, then use /goal-resume.";
+		return this.limit(ctx) === 0 ? "Automatic continuation disabled by maxAutonomousRuns=0. Change the setting in /goal-settings, then use /goal-resume." : "Autonomous-run allowance exhausted. Increase or remove maxAutonomousRuns, or use /goal-resume to renew.";
 	}
 
 	/** Bind once per live session. The event is deliberately not a triggerTurn message. */
@@ -108,7 +111,7 @@ export class GoalScheduler {
 	/** Only explicit user resume resets spent allowance, including while already active/waiting. */
 	resume(ctx: ExtensionContext): boolean {
 		invalidateGoalSettingsCache();
-		if (!this.limit(ctx)) { ctx.ui.notify(this.allowanceReason(ctx), "warning"); return false; }
+		if (this.limit(ctx) === 0) { ctx.ui.notify(this.allowanceReason(ctx), "warning"); return false; }
 		try {
 			this.cancelTimer();
 			this.core.runtime.clearContinuationState();
@@ -129,7 +132,7 @@ export class GoalScheduler {
 		this.safe(ctx, () => {
 			const goal = this.core.state.goal;
 			if (!goal || goal.status !== "active" || !goal.autoContinue) return;
-			if (!this.limit(ctx)) { this.update(ctx, () => {}); ctx.ui.notify(this.allowanceReason(ctx), "info"); return; }
+			if (this.limit(ctx) === 0) { this.update(ctx, () => {}); ctx.ui.notify(this.allowanceReason(ctx), "info"); return; }
 			this.update(ctx, s => { s.phase = "ready"; s.decision = { kind: "ready", nextAction: "Begin the requested goal.", purpose: "kickoff" }; });
 			this.schedule(ctx);
 		});
@@ -168,7 +171,7 @@ export class GoalScheduler {
 			this.declared = true;
 			this.core.runtime.markTurnStopped(goal.id);
 			const wait = goal.scheduler?.wait;
-			return { content: [{ type: "text", text: `Scheduling decision saved. Stop this execution.\n${schedulerSummary(goal.scheduler, this.limit(ctx) || undefined)}${wait ? `\nWake token: ${wait.token}. Register this token with the producer before completion; adapters must retain early results.` : ""}` }], details: { goal, ...(wait ? { wait_id: wait.id, waitToken: wait.token } : {}) }, terminate: true };
+			return { content: [{ type: "text", text: `Scheduling decision saved. Stop this execution.\n${schedulerSummary(goal.scheduler, this.limit(ctx))}${wait ? `\nWake token: ${wait.token}. Register this token with the producer before completion; adapters must retain early results.` : ""}` }], details: { goal, ...(wait ? { wait_id: wait.id, waitToken: wait.token } : {}) }, terminate: true };
 		} catch (error) { return { content: [{ type: "text", text: `Scheduling decision NOT saved: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true }, terminate: false }; }
 	}
 

@@ -48,8 +48,8 @@ async function fixture(t: TestContext, limit?: number, owner = "owner", existing
 	return { cwd, ctx, core, handlers, tools, sent, notifications, begin, admit, ready, wait, pi, aborts: () => aborts };
 }
 
-test("no configured allowance means no automatic model runs, even for missing disposition", async t => {
-	const h = await fixture(t);
+test("explicit zero means no automatic model runs, even for missing disposition", async t => {
+	const h = await fixture(t, 0);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 	h.begin();
 	assert.equal(h.ready().terminate, false);
@@ -57,7 +57,47 @@ test("no configured allowance means no automatic model runs, even for missing di
 	t.mock.timers.tick(10000);
 	assert.equal(h.sent.length, 0);
 	assert.equal(h.core.state.goal?.status, "paused");
-	assert.match(h.core.state.goal?.pauseReason ?? "", /No maxAutonomousRuns/);
+	assert.match(h.core.state.goal?.pauseReason ?? "", /disabled by maxAutonomousRuns=0/);
+});
+
+for (const start of ["creation", "resume"] as const) {
+	test(`default ${start} starts automatically and still allows only one repair`, async t => {
+		const h = await fixture(t);
+		t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+		if (start === "creation") h.core.replaceGoal({ objective: "Work automatically", autoContinue: true, sisyphus: false }, h.ctx);
+		else assert.equal(h.core.scheduler.resume(h.ctx), true);
+		t.mock.timers.tick(1);
+		assert.equal(h.sent.length, 1);
+		h.admit(); h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1);
+		assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "repair");
+		h.admit(); h.core.scheduler.settled(h.ctx); t.mock.timers.tick(10000);
+		assert.equal(h.sent.length, 2);
+		assert.equal(h.core.state.goal?.status, "paused");
+		assert.match(h.core.state.goal?.pauseReason ?? "", /No execution disposition/);
+	});
+}
+
+test("uncapped ready runs keep counting when limits are added and removed", async t => {
+	const h = await fixture(t);
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin();
+	for (let used = 1; used <= 5; used++) {
+		assert.equal(h.ready().terminate, true);
+		h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1); h.admit();
+		assert.equal(h.core.state.goal?.scheduler?.used, used);
+	}
+	assert.match(schedulerSummary(h.core.state.goal?.scheduler), /5\/unlimited/);
+	saveGoalSettingsFileConfig(h.cwd, { maxAutonomousRuns: 5 });
+	assert.equal(h.ready().terminate, false, "adding a cap includes previously uncapped dispatches");
+	saveGoalSettingsFileConfig(h.cwd, {});
+	assert.equal(h.ready().terminate, true, "removing the cap re-enables continuation");
+	h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1); h.admit();
+	assert.equal(h.core.state.goal?.scheduler?.used, 6);
+	saveGoalSettingsFileConfig(h.cwd, { maxAutonomousRuns: 6 });
+	h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1);
+	assert.equal(h.sent.length, 6);
+	assert.equal(h.core.state.goal?.status, "paused");
+	assert.equal(h.core.state.goal?.scheduler?.used, 6);
 });
 
 test("every tool category requires the same declaration; one repair then pause", async t => {
@@ -242,7 +282,7 @@ for (const kind of ["recovery", "repair"] as const) {
 }
 
 test("network backoff crossing a wait deadline cannot dispatch recovery", async t => {
-	const h = await fixture(t, 10);
+	const h = await fixture(t);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 	h.begin();
 	h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
@@ -261,7 +301,7 @@ test("lowering allowance before delivery stops the wake without resetting usage"
 	const h = await fixture(t, 2);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 	h.begin(); h.ready(); h.core.scheduler.settled(h.ctx);
-	saveGoalSettingsFileConfig(h.cwd, {});
+	saveGoalSettingsFileConfig(h.cwd, { maxAutonomousRuns: 0 });
 	t.mock.timers.tick(1);
 	assert.equal(h.sent.length, 0);
 	assert.equal(h.core.state.goal?.scheduler?.used, 0);

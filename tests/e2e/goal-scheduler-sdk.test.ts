@@ -4,6 +4,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
+test("real SDK: default uncapped runs retain waits, one repair and stale-wake protection", { timeout: 30000 }, async () => {
+	const { stdout } = await promisify(execFile)(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("../scheduler-sdk-worker.mjs", import.meta.url)), "--uncapped"], { timeout: 25000 });
+	const result = JSON.parse(stdout.trim().split("\n").at(-1)!);
+	assert.equal(result.passed, true);
+	assert.equal(result.requests, 8);
+	assert.equal(result.used, 4);
+});
+
 test("real SDK: explicit dispositions, custom wakes and one repair enforce allowance", { timeout: 30000 }, async () => {
 	const { stdout } = await promisify(execFile)(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("../scheduler-sdk-worker.mjs", import.meta.url))], { timeout: 25000 });
 	assert.equal(JSON.parse(stdout.trim().split("\n").at(-1)!).passed, true);

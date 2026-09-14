@@ -509,7 +509,7 @@ async function runGoalAgentPauseFlow(ctx: ExtensionContext, reason: string | und
 pi.registerTool(defineTool({
 	name: "update_goal",
 	label: "Update Goal",
-	description: "End execution with status OR continuation (requires maxAutonomousRuns). Wait: future ISO deadline; reuse wait_id/deadline without polling on recheck. Completion is audited.",
+	description: "End execution with status OR continuation. Wait: future ISO deadline; reuse wait_id/deadline without polling on recheck. Completion is audited.",
 	promptSnippet: "Declare the next execution disposition or complete, block, or pause.",
 	promptGuidelines: [],
 	parameters: Type.Object({

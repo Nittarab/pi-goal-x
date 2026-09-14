@@ -55,7 +55,7 @@ export function normalizeGoalScheduler(raw: unknown): GoalSchedulerState | undef
 }
 
 export function schedulerSummary(s: GoalSchedulerState | undefined, limit?: number): string {
-	const lines = [`Autonomous runs: ${s?.used ?? 0}/${limit ?? "not configured"}${!limit ? " (automatic continuation disabled)" : ""}.`];
+	const lines = [`Autonomous runs: ${s?.used ?? 0}/${limit ?? "unlimited"}${limit === 0 ? " (automatic continuation disabled)" : ""}.`];
 	if (!s) return lines.join("\n");
 	if (s.decision?.kind === "ready") lines.push(`Next action: ${s.decision.nextAction}`);
 	if (s.wait) {

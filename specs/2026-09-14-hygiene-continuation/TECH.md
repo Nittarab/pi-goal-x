@@ -10,8 +10,10 @@ Keep lifecycle GoalStatus separate from a versioned scheduler field. Strictly va
 
 Accept maxAutonomousRuns=0 in strict parsing and the settings menu. Preserve zero through persistence and resolution so a project can override an enabled global allowance; unsetting the project value restores inheritance without resetting consumption. Summaries explicitly label zero as disabled. Verify parsing, persistence, settings UI, inheritance and dispatch cancellation with used allowance retained.
 
+Keep an absent resolved limit as undefined, meaning unlimited execution; do not coerce it to zero or persist Infinity. Dispatch availability accepts undefined or an unspent numeric limit, while kickoff/resume only refuse explicit zero. Continue counting uncapped dispatches so adding a limit does not renew usage. Render absent limits as unlimited in all summaries/settings. Default execution still uses the same claim gate, repair limit and bounded waits; extend real SDK coverage to the no-settings path.
+
 Keep README.md at its pre-review version per user steering. Record these follow-up semantics in specs, changelog and the PR description.
 
 Validation: pure scheduler fake-clock tests plus real GoalService and real SDK cases for tool independence, claim/cancellation races, missing decisions, owned restoration, external events, dynamic allowance, retries and compaction. Run full checks and measure extra model-context cost, updating baseline only for reviewed intentional contract overhead.
 
-Use a compact disabled-mode policy and conditional enabled guidance, with allowance presence in the prompt cache key. Keep the scheduling schema discoverable so agents can enable the setting without reload; avoid dynamic tool-registration churn. Deduplicate tool descriptions and system instructions, retain validation at the mutation boundary, and remeasure context.
+Use a compact disabled-mode policy and conditional enabled guidance, with maxAutonomousRuns !== 0 in the prompt cache key. Omitted and positive limits both receive ready/wait guidance; zero does not. Keep the scheduling schema discoverable without reload; avoid dynamic tool-registration churn. Deduplicate tool descriptions and system instructions, retain validation at the mutation boundary, and remeasure context.

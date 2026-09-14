@@ -6,7 +6,7 @@ All notable changes to pi-goal-x are documented here.
 
 ### Changed
 
-- **Explicit execution contract (#55)** — automatic goal runs require a saved ready/wait decision and positive `maxAutonomousRuns`; absent at both scopes disables automatic continuation. Zero explicitly disables it, including when overriding a global allowance. `/goal-resume` renews the allowance. Tool names no longer determine continuation.
+- **Explicit execution contract (#55)** — automatic continuation is on by default with no run-count limit, using saved ready/wait decisions. Optional `maxAutonomousRuns` caps runs; zero disables them, including when overriding a global allowance. `/goal-resume` renews consumption and works without a configured limit. Tool names no longer determine continuation.
 - Outstanding wait deadlines apply to recovery and repair dispatches, including those delayed by host readiness.
 - Added durable, bounded waits, `pi-goal:wake` signals, atomic generation-tagged dispatch claims, one-shot contract repair, and scheduling status. Existing goals remain readable; interrupted dispatches require explicit resume. Independently triggered host runs remain outside the extension's allowance.
 

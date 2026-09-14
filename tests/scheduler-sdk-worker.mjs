@@ -12,7 +12,8 @@ import { writeActiveGoalFile } from '../extensions/storage/goal-files.ts';
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'scheduler-sdk-'));
 fs.mkdirSync(path.join(cwd, '.pi'));
-fs.writeFileSync(path.join(cwd, '.pi', 'pi-goal-x-settings.json'), JSON.stringify({ maxAutonomousRuns: 4 }));
+const uncapped = process.argv.includes('--uncapped');
+if (!uncapped) fs.writeFileSync(path.join(cwd, '.pi', 'pi-goal-x-settings.json'), JSON.stringify({ maxAutonomousRuns: 4 }));
 process.env.PI_GOAL_GLOBAL_SETTINGS_FILE = path.join(cwd, 'absent-global');
 let session, core, piApi;
 const requests = [];
@@ -78,6 +79,7 @@ try {
 	await until(() => core.state.goal?.status === 'paused' && session.isIdle);
 	assert.equal(workRequests, 8, 'ready, wake, ready, one repair only');
 	assert.equal(core.state.goal.scheduler.used, 4);
+	if (uncapped) assert.match(core.state.goal.pauseReason, /No execution disposition/, 'uncapped mode stops after its only repair');
 	assert.ok(JSON.stringify(requests.at(-1)).includes('This is the only repair prompt'), 'the admitted repair action must reach the provider');
 	await delay(200); assert.equal(workRequests, 8);
 	assert.ok(JSON.stringify(requests[lifecycleMode ? 3 : 2]).includes('Inspect the fixture result'), 'custom-message run receives current scheduling context');
