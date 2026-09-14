@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	DEFAULT_NETWORK_ERROR_RECOVERY_POLICY,
+	DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS,
 	NETWORK_ERROR_BACKOFF_DELAYS_MS,
 	networkErrorBackoffPlan,
 } from "../extensions/network-error-backoff.ts";
@@ -10,14 +12,17 @@ import {
 	isNetworkErrorAssistantMessage,
 } from "../extensions/goal-format.ts";
 
-test("network-error backoff escalates and plateaus; default policy is unbounded", () => {
+test("network-error backoff escalates and plateaus; default policy is finite", () => {
 	assert.deepEqual(NETWORK_ERROR_BACKOFF_DELAYS_MS, [5_000, 10_000, 20_000, 40_000, 80_000]);
-	assert.deepEqual(networkErrorBackoffPlan(1), { attempt: 1, maxAttempts: 0, delayMs: 5_000 });
-	assert.deepEqual(networkErrorBackoffPlan(5), { attempt: 5, maxAttempts: 0, delayMs: 80_000 });
+	assert.equal(DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS, 5);
+	assert.deepEqual(networkErrorBackoffPlan(1), { attempt: 1, maxAttempts: 5, delayMs: 5_000 });
+	assert.deepEqual(networkErrorBackoffPlan(5), { attempt: 5, maxAttempts: 5, delayMs: 80_000 });
 	assert.equal(networkErrorBackoffPlan(0), undefined);
-	// Unbounded default: the ladder plateaus at the max delay forever.
-	assert.deepEqual(networkErrorBackoffPlan(6), { attempt: 6, maxAttempts: 0, delayMs: 80_000 });
-	assert.deepEqual(networkErrorBackoffPlan(50), { attempt: 50, maxAttempts: 0, delayMs: 80_000 });
+	assert.equal(networkErrorBackoffPlan(6), undefined, "default cap exhausts after five attempts");
+	assert.equal(DEFAULT_NETWORK_ERROR_RECOVERY_POLICY.maxAttempts, 5);
+	const unbounded = { maxAttempts: 0, maxDelayMs: 80_000 };
+	assert.deepEqual(networkErrorBackoffPlan(6, unbounded), { attempt: 6, maxAttempts: 0, delayMs: 80_000 });
+	assert.deepEqual(networkErrorBackoffPlan(50, unbounded), { attempt: 50, maxAttempts: 0, delayMs: 80_000 });
 });
 
 test("network-error backoff honors a configured bounded cap and custom plateau", () => {
