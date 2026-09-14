@@ -185,6 +185,52 @@ test("set_goal_tasks sets a structural task tree (headless auto-confirm)", async
 	}
 });
 
+test("set_goal_tasks cannot drop pending tasks only to bypass blockCompletion", async () => {
+	const f = fixtureWithTasks([
+		{ id: "prove-one", title: "Prove one", status: "pending" },
+		{ id: "full-matrix", title: "Full matrix", status: "pending" },
+	]);
+	try {
+		const current = activeGoal(f.cwd)!;
+		current.taskList = { ...current.taskList!, blockCompletion: true };
+		writeActiveGoalFile({ cwd: f.cwd }, current);
+		const h = createHarness(f.cwd, f.sessionEntries);
+		await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+		const tool = h.tools.get("set_goal_tasks")!;
+		const result = await (tool.execute as any)("set-bypass", {
+			tasks: [{ id: "prove-one", title: "Prove one" }],
+			block_completion: true,
+		}, undefined, undefined, h.ctx);
+		assert.match(result.content[0].text, /cannot drop pending tasks/);
+		const goal = activeGoal(f.cwd);
+		assert.equal(goal?.taskList?.tasks.length, 2);
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("update_goal_task can skip a peer path on a paused goal", async () => {
+	const f = fixtureWithTasks([
+		{ id: "prove-one", title: "Prove one", status: "complete", evidence: "gate passed" },
+		{ id: "full-matrix", title: "Full matrix", status: "pending" },
+	]);
+	try {
+		const parsed = activeGoal(f.cwd)!;
+		parsed.status = "paused";
+		parsed.autoContinue = false;
+		writeActiveGoalFile({ cwd: f.cwd }, parsed);
+		const h = createHarness(f.cwd, f.sessionEntries);
+		await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+		const tool = h.tools.get("update_goal_task")!;
+		const result = await (tool.execute as any)("skip-1", { task_id: "full-matrix", status: "skipped", reason: "unused Fibonacci path" }, undefined, undefined, h.ctx);
+		assert.match(result.content[0].text, /skipped/);
+		const goal = activeGoal(f.cwd);
+		assert.equal(goal?.taskList?.tasks.find((t) => t.id === "full-matrix")?.status, "skipped");
+	} finally {
+		f.cleanup();
+	}
+});
+
 test("update_goal_task(complete) marks a task complete with evidence and ledger", async () => {
 	const f = fixtureWithTasks([{ id: "t1", title: "Task one", status: "pending" }]);
 	try {

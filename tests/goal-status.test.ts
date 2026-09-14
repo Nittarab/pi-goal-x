@@ -228,6 +228,31 @@ test("health mode can report an internally healthy goal", () => {
 	assert.match(text, /OK Ledger: valid/);
 });
 
+test("health mode reports scheduler state and why work is not queued", () => {
+	const text = buildGoalStatusText({
+		goal: goal({
+			status: "paused",
+			autoContinue: false,
+			pauseReason: "Provider network recovery exhausted after 5 attempts.",
+			scheduler: {
+				version: 1,
+				owner: "s",
+				generation: "g",
+				used: 3,
+				phase: "idle",
+				repairUsed: true,
+				dispatch: { id: "d1", kind: "recovery", claimedAt: Date.parse("2026-09-14T00:00:00.000Z") },
+			},
+		}),
+		focused: true,
+		otherOpenGoals: 0,
+		health: true,
+		activeFilePresent: true,
+	});
+	assert.match(text, /Scheduler: phase idle · used 3 · last dispatch recovery/);
+	assert.match(text, /Dispatch: Goal is paused: Provider network recovery exhausted/);
+});
+
 test("health mode explains an unfocused session", () => {
 	const text = buildGoalStatusText({ goal: null, focused: false, otherOpenGoals: 2, health: true });
 	assert.match(text, /^Goal health: WARN/);

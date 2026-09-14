@@ -194,6 +194,7 @@ function lifecyclePolicyBlock(autonomous: boolean): string {
   '- The objective is immutable: never edit it yourself; ask the user to run /goal-tweak.',
   '- Use work tools directly. Do not call get_goal repeatedly when the needed state is already visible.',
   '- Retrieve omitted requirements before acting on them. Re-read changed requirements and details lost after compaction. Full objective/contracts: get_goal(section="objective"); tasks: get_goal(section="tasks").',
+  '- Parent-child tasks mean decomposition, not ordering or conditional branching. Alternative paths are peer tasks; skip the path that is not selected. Do not replace the task list only to bypass completion.',
  ].join("\n");
 }
 
