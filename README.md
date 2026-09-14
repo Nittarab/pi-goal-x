@@ -13,11 +13,9 @@
 
 # pi-goal-x
 
-Adds `/goal` functionality to [pi](https://github.com/earendil-works/pi-coding-agent). The agent helps you define a goal and plan, continues working within a configured autonomous-run allowance, and submits the result to an optional independent completion auditor.
+Adds `/goal` functionality to [pi](https://github.com/earendil-works/pi-coding-agent). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
 
 The extension saves goal objectives, tasks, and progress across sessions. You can pause, resume, revise, or switch goals as your work changes.
-
-**Upgrading from 0.31.3 or earlier:** automatic goal runs are now off by default. Set a positive `maxAutonomousRuns` in `/goal-settings`, then use `/goal-resume` for an existing goal. Set a project's allowance to `0` to disable automatic runs even when your global settings enable them. See [explicit execution and waiting](#explicit-execution-and-waiting).
 
 ## Install
 
@@ -31,7 +29,7 @@ pi install npm:pi-goal-x
 /goal Add CSV export to the reports page, with documentation and tests.
 ```
 
-The agent discusses the goal with you, asks focused questions where needed, and proposes an objective, task plan, and completion requirements. You review the proposal and choose whether to use the completion auditor. With a positive autonomous-run allowance configured, the agent starts working and continues according to its saved execution decisions until completion, a pause, or allowance exhaustion.
+The agent discusses the goal with you, asks focused questions where needed, and proposes an objective, task plan, and completion requirements. You review the proposal and choose whether to use the completion auditor. Once you confirm, the agent starts working and continues automatically while the goal is active.
 
 You can specify completion requirements, such as passing the test suite or producing a report with every required section. The agent tracks tasks and subtasks, records evidence, and works toward those requirements. If it gets blocked and needs your input, you can resolve the issue and resume.
 
@@ -117,7 +115,7 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 
 | Setting | What it controls |
 | --- | --- |
-| Autonomous run allowance (`maxAutonomousRuns`) | Nonnegative whole number of extension-started runs per creation or `/goal-resume` period. **Zero disables automatic continuation**, overriding a global allowance. Unset inherits the global value; absent at both scopes disables it. Settings edits change the limit without resetting usage. |
+| Autonomous run allowance (`maxAutonomousRuns`) | Positive whole number of extension-started runs per creation or `/goal-resume` period. **Unset disables automatic continuation.** Settings edits change the limit without resetting usage. |
 | Task tracking (`disableTasks`) | Turn task lists on or off. Set to `true` to disable them. |
 | Subtask depth (`subtaskDepth`) | Limit how many levels of subtasks the agent can create. |
 | Completion requirements (`disableContracts`) | Turn explicit goal and task completion requirements on or off. Set to `true` to disable them. |
@@ -135,7 +133,7 @@ Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.
 { "maxAutonomousRuns": 20 }
 ```
 
-Agents may edit this setting, including increasing its ceiling, so it is a configurable scheduling limit, not a hard spending cap. Changing it does not replenish consumed runs; explicit `/goal-resume` renews the period and continues now, including from a waiting goal. It requires a positive allowance. Set `maxAutonomousRuns` to `0` in a project to disable automatic runs; remove that project override to inherit the global value again. Tool calls within a run are not separate runs. Existing token budgets still apply.
+Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/goal-resume` renews the period and continues now, including from a waiting goal. It requires a configured allowance. Tool calls within a run are not separate runs. Existing token budgets still apply.
 
 ```js
 update_goal({ continuation: { kind: "ready", next_action: "Verify the build artifacts" } })
@@ -148,7 +146,7 @@ update_goal({ continuation: {
 
 Use a future deadline appropriate to the task. Omit `polling` for an event-only wait. Successful declarations terminate the execution segment. On a scheduled check, reuse the returned `wait_id` and original deadline, omitting `polling`; remaining checks cannot be reset. A ready decision ends the wait. Time spent waiting is not active execution time.
 
-The dashboard, `/goal-status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. An outstanding wait deadline also stops network recovery and contract repair dispatches, including those delayed by a busy host. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
+The dashboard, `/goal-status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
 
 ### Background producer integration
 

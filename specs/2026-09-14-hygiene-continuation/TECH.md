@@ -10,6 +10,8 @@ Keep lifecycle GoalStatus separate from a versioned scheduler field. Strictly va
 
 Accept maxAutonomousRuns=0 in strict parsing and the settings menu. Preserve zero through persistence and resolution so a project can override an enabled global allowance; unsetting the project value restores inheritance without resetting consumption. Summaries explicitly label zero as disabled. Verify parsing, persistence, settings UI, inheritance and dispatch cancellation with used allowance retained.
 
+Keep README.md at its pre-review version per user steering. Record these follow-up semantics in specs, changelog and the PR description.
+
 Validation: pure scheduler fake-clock tests plus real GoalService and real SDK cases for tool independence, claim/cancellation races, missing decisions, owned restoration, external events, dynamic allowance, retries and compaction. Run full checks and measure extra model-context cost, updating baseline only for reviewed intentional contract overhead.
 
 Use a compact disabled-mode policy and conditional enabled guidance, with allowance presence in the prompt cache key. Keep the scheduling schema discoverable so agents can enable the setting without reload; avoid dynamic tool-registration churn. Deduplicate tool descriptions and system instructions, retain validation at the mutation boundary, and remeasure context.

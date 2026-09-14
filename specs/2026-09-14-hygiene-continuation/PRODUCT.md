@@ -10,7 +10,7 @@ Persist ownership/generation, decisions, waits, counters and dispatch identity. 
 
 Waiting spends no model turns until a signal or explicit bounded check. Deadline/check/allowance exhaustion pauses without another model call. Restore owning-session waits without catch-up; require explicit resume for another session. Pause/complete/clear/focus/user takeover invalidate delivery. Waiting does not accrue active time. Closed sessions do not execute timers.
 
-An outstanding wait deadline applies to every extension dispatch, including network recovery and missing-disposition repair after a polling check. Recheck the deadline immediately before claiming a dispatch, even if readiness or recovery was scheduled before expiry. Document the off-by-default behavior prominently for users upgrading from automatic continuation.
+An outstanding wait deadline applies to every extension dispatch, including network recovery and missing-disposition repair after a polling check. Recheck the deadline immediately before claiming a dispatch, even if readiness or recovery was scheduled before expiry. User steering: do not change README.md in this review follow-up; preserve the README already present on PR #58 before the review fixes.
 
 Document pi-goal:wake {goalId, waitToken}: matching signals authorize a wake; stale/duplicate signals do nothing. Register before starting a producer, or retain its result until registration. Ordinary third-party follow-ups remain host work and invalidate pending scheduling; their model spending is outside this gate.
 

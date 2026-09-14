@@ -37,8 +37,10 @@ User approved the review findings. Updated PRODUCT then TECH to require outstand
 
 Moved retained-wait deadline checks outside the waiting-phase branches in scheduling and the atomic dispatch gate. Recovery and repair cannot bypass expiry by transitioning to ready, including when the host delays delivery. Added four scheduling/delivery deadline regressions and a real runtime-backoff regression; denied dispatches leave consumption unchanged.
 
-Parsing, persistence and the settings menu now accept zero, with disabled labels in settings reports and scheduler summaries. Added regressions for the menu, project-over-global zero, pending-dispatch cancellation, denied resume, restored inheritance and retained consumption. Disabled prompt guidance also remains selected for zero. README now includes prominent upgrade instructions and explains that an agent-editable allowance is not a hard spending cap.
+Parsing, persistence and the settings menu now accept zero, with disabled labels in settings reports and scheduler summaries. Added regressions for the menu, project-over-global zero, pending-dispatch cancellation, denied resume, restored inheritance and retained consumption. Disabled prompt guidance also remains selected for zero. The product spec explains that an agent-editable allowance is not a hard spending cap.
 
 The first context gate run detected the intentional three-character prompt clarification from “is set” to “> 0”. Remeasured all 24 fixtures, updated the baseline/CONTEXT-AFTER and documented the 42-character aggregate reduction in CONTEXT.md; no gate invariant was relaxed.
 
 Validation: all 989 tests pass (including both real SDK scheduler fixtures), with zero failures/skips. TypeScript, ESLint, manifest self-check (941 unit tests), context gate, six real SDK provider-payload cross-checks and git diff whitespace checks pass. No package version or dependency change.
+
+User subsequently requested no README changes. Updated PRODUCT then TECH and restored README.md exactly to the pre-review PR version. Code and tests are unchanged by this documentation-only correction.
