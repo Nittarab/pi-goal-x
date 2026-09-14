@@ -20,6 +20,18 @@ import { showTaskConfirmation } from "../extensions/goal-task-confirmation.ts";
 
 // ── Flat conversion unit tests ───────────────────────────────────────────────
 
+test("Fibonacci gate nested under prove-one becomes peer tasks", () => {
+	const result = convertFlatTasks([
+		{ id: "prove-one", title: "Prove the last GTM CLI fault is gone" },
+		{ id: "fix-missing", title: "Fix missing JSON body", parent_id: "prove-one" },
+		{ id: "full-matrix", title: "Run the full-matrix", parent_id: "prove-one" },
+	]);
+	assert.ok(result.ok);
+	if (!result.ok) return;
+	assert.deepEqual(result.tasks.map((task) => task.id), ["prove-one", "fix-missing", "full-matrix"]);
+	assert.equal(result.tasks[0]!.subtasks, undefined);
+});
+
 test("flat input converts to the same recursive tree", () => {
 	const result = convertFlatTasks([
 		{ id: "a", title: "A" },
@@ -180,6 +192,79 @@ test("set_goal_tasks sets a structural task tree (headless auto-confirm)", async
 		assert.equal(goal!.taskList!.tasks[0]!.subtasks?.[0]?.id, "t2");
 		assert.equal(goal!.taskList!.blockCompletion, true);
 		assert.ok(ledgerEvents(f.cwd).some((e) => e.type === "task_list_set"), "task_list_set ledger event");
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("set_goal_tasks cannot drop pending tasks only to bypass blockCompletion", async () => {
+	const f = fixtureWithTasks([
+		{ id: "prove-one", title: "Prove one", status: "pending" },
+		{ id: "full-matrix", title: "Full matrix", status: "pending" },
+	]);
+	try {
+		const current = activeGoal(f.cwd)!;
+		current.taskList = { ...current.taskList!, blockCompletion: true };
+		writeActiveGoalFile({ cwd: f.cwd }, current);
+		const h = createHarness(f.cwd, f.sessionEntries);
+		await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+		const tool = h.tools.get("set_goal_tasks")!;
+		const result = await (tool.execute as any)("set-bypass", {
+			tasks: [{ id: "prove-one", title: "Prove one" }],
+			block_completion: true,
+		}, undefined, undefined, h.ctx);
+		assert.match(result.content[0].text, /cannot drop pending tasks/);
+		const goal = activeGoal(f.cwd);
+		assert.equal(goal?.taskList?.tasks.length, 2);
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("entries 1390-1395: prove-one completes while the unused full-matrix path is still pending", async () => {
+	const f = fixtureWithTasks([
+		{
+			id: "prove-one",
+			title: "Prove the last GTM CLI fault is gone",
+			status: "pending",
+			subtasks: [
+				{ id: "fix-missing", title: "Fix missing JSON body", status: "skipped", skipReason: "not this path" },
+				{ id: "full-matrix", title: "Run the full-matrix", status: "pending" },
+			],
+		},
+	]);
+	try {
+		const h = createHarness(f.cwd, f.sessionEntries);
+		await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+		const tool = h.tools.get("update_goal_task")!;
+		const result = await (tool.execute as any)("complete-gate", { task_id: "prove-one", status: "complete", evidence: "JSON body fault gone on the same cell" }, undefined, undefined, h.ctx);
+		assert.match(result.content[0].text, /prove-one/);
+		assert.doesNotMatch(result.content[0].text, /pending subtask/);
+		const goal = activeGoal(f.cwd);
+		assert.equal(goal?.taskList?.tasks[0]?.status, "complete");
+		assert.equal(goal?.taskList?.tasks[0]?.subtasks?.find((t) => t.id === "full-matrix")?.status, "pending");
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("update_goal_task can skip a peer path on a paused goal", async () => {
+	const f = fixtureWithTasks([
+		{ id: "prove-one", title: "Prove one", status: "complete", evidence: "gate passed" },
+		{ id: "full-matrix", title: "Full matrix", status: "pending" },
+	]);
+	try {
+		const parsed = activeGoal(f.cwd)!;
+		parsed.status = "paused";
+		parsed.autoContinue = false;
+		writeActiveGoalFile({ cwd: f.cwd }, parsed);
+		const h = createHarness(f.cwd, f.sessionEntries);
+		await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+		const tool = h.tools.get("update_goal_task")!;
+		const result = await (tool.execute as any)("skip-1", { task_id: "full-matrix", status: "skipped", reason: "unused Fibonacci path" }, undefined, undefined, h.ctx);
+		assert.match(result.content[0].text, /skipped/);
+		const goal = activeGoal(f.cwd);
+		assert.equal(goal?.taskList?.tasks.find((t) => t.id === "full-matrix")?.status, "skipped");
 	} finally {
 		f.cleanup();
 	}

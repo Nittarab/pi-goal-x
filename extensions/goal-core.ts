@@ -10,6 +10,17 @@ export interface GoalDisplayRecordLike {
 	usage: GoalUsageLike;
 	sisyphus: boolean;
 	stopReason?: "user" | "agent";
+	/** Optional scheduler; when unable to dispatch, UI must not say running. */
+	scheduler?: { phase?: string; decision?: { kind?: string } };
+}
+
+/** True when an active auto-continue goal can actually dispatch work. */
+export function schedulerAbleToRun(goal: Pick<GoalDisplayRecordLike, "status" | "autoContinue" | "scheduler">): boolean {
+	if (goal.status !== "active" || !goal.autoContinue) return false;
+	const phase = goal.scheduler?.phase;
+	if (phase === "waiting" || phase === "interrupted") return false;
+	if (phase === "idle" && goal.scheduler?.decision?.kind !== "ready") return false;
+	return true;
 }
 
 
@@ -59,9 +70,9 @@ export function formatDuration(seconds: number): string {
 	return `${secs}s`;
 }
 
-export function statusLabel(goal: Pick<GoalDisplayRecordLike, "sisyphus" | "status" | "autoContinue" | "stopReason">): string {
+export function statusLabel(goal: Pick<GoalDisplayRecordLike, "sisyphus" | "status" | "autoContinue" | "stopReason" | "scheduler">): string {
 	const prefix = goal.sisyphus ? "sisyphus " : "";
-	if (goal.status === "active" && goal.autoContinue) return `${prefix}running`;
+	if (goal.status === "active" && goal.autoContinue) return schedulerAbleToRun(goal) ? `${prefix}running` : `${prefix}idle`;
 	if (goal.status === "paused" && goal.stopReason === "agent") return `${prefix}paused (agent)`;
 	if (goal.status === "blocked") return `${prefix}blocked`;
 	if (goal.status === "budget_limited") return `${prefix}budget limited`;

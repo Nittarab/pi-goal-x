@@ -193,6 +193,34 @@ describe("Applicable tool profiles", () => {
 		}
 	});
 
+	it("paused goal with tasks advertises per-task closeout", async () => {
+		const f = testFixture();
+		try {
+			const paused = createGoal({
+				objective: "Paused with tasks",
+				autoContinue: false,
+				sisyphus: false,
+			}, Date.UTC(2026, 5, 26, 10, 30, 0));
+			paused.status = "paused";
+			paused.taskList = {
+				tasks: [{ id: "prove-one", title: "Prove one", status: "pending" }, { id: "full-matrix", title: "Full matrix", status: "pending" }],
+				blockCompletion: true,
+				proposedAt: "2026-01-01T00:00:00.000Z",
+			};
+			const written = writeActiveGoalFile({ cwd: f.cwd } as any, paused);
+			const entries = [
+				{ type: "custom", customType: "pi-goal-focus", data: goalFocusDetails(paused.id, "created") },
+				{ type: "custom", customType: "pi-goal-state", data: { version: 3, goal: { ...paused, activePath: written.activePath } } },
+			];
+			activeToolNames = [...HOST_SEED_A];
+			apiCalls = [];
+			await runSession(f.cwd, entries);
+			expectGoalProfile([...ACTIVE_NO_TASKS, "update_goal_task"]);
+		} finally {
+			f.cleanup();
+		}
+	});
+
 	it("tasks disabled: task tools remain hidden across states", async () => {
 		for (const status of ["active", "paused", "complete"] as const) {
 			const cwd = mkdtempSync(path.join(tmpdir(), "goal-tool-vis-notasks-"));

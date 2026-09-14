@@ -11,7 +11,7 @@ import { taskIndex } from "../goal-task-index.ts";
  * the durable ledger.
  */
 
-import { displayObjectiveTitle, formatDuration, statusLabel } from "../goal-core.ts";
+import { displayObjectiveTitle, formatDuration, schedulerAbleToRun, statusLabel } from "../goal-core.ts";
 import type { GoalLedgerEvent } from "../goal-ledger.ts";
 import type { GoalRecord, GoalTask } from "../goal-record.ts";
 import { deriveGoalActivity, type GoalActivityItem } from "../goal-activity.ts";
@@ -133,7 +133,7 @@ export interface DashboardGoalStatus {
 export function deriveGoalStatus(goal: GoalRecord): DashboardGoalStatus {
 	switch (goal.status) {
 		case "active":
-			return goal.autoContinue
+			return goal.autoContinue && schedulerAbleToRun(goal)
 				? { code: "running", label: "In progress", footerLabel: statusLabel(goal) }
 				: { code: "idle", label: "Idle", footerLabel: statusLabel(goal) };
 		case "paused": {

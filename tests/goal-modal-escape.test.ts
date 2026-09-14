@@ -180,7 +180,10 @@ test("Escape while a goal modal is open never pauses the goal; Escape after it c
 		const setTasks = h.tools["set_goal_tasks"];
 		assert.ok(setTasks, "set_goal_tasks tool registered");
 		const toolPromise = setTasks.execute("set-1", {
-			tasks: [{ id: "t1", title: "Task one" }],
+			tasks: [
+				{ id: "task-1", title: "Implement core" },
+				{ id: "task-1a", title: "Design", parent_id: "task-1" },
+			],
 		}, undefined, undefined, h.ctx);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		assert.ok(h.overlayShown(), "task confirmation modal must be shown");
