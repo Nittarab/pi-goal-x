@@ -4,6 +4,8 @@ All notable changes to pi-goal-x are documented here.
 
 ## [Unreleased]
 
+## [0.31.4] — 2026-09-14
+
 ### Changed
 
 - **Explicit execution contract (#55)** — automatic continuation is on by default with no run-count limit, using saved ready/wait decisions. Optional `maxAutonomousRuns` caps runs; zero disables them, including when overriding a global allowance. `/goal-resume` renews consumption and works without a configured limit. Tool names no longer determine continuation.
