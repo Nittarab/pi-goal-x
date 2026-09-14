@@ -62,3 +62,14 @@ PR: https://github.com/Nittarab/pi-goal-x/pull/1
 - Tests: held lock, missing endTurn, stale memory vs disk pause, competing writer.
 
 Validation: `npm run test:all` 998 pass.
+
+PR: https://github.com/Nittarab/pi-goal-x/pull/2
+
+## PR C implementation
+
+- Prompt/tool guidance: parent-child is decomposition; alternative paths are peers.
+- Paused goals with tasks advertise `update_goal_task`; skip/complete work while paused.
+- `set_goal_tasks` cannot drop pending tasks when `blockCompletion` is on.
+- `/goal-status health` includes scheduler phase/dispatch and why work is not queued.
+
+Validation: `npm run test:all` 1002 pass.
