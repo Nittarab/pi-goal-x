@@ -9,7 +9,7 @@ import type { GoalCore } from "../extensions/goal-state.ts";
 import { createGoal, goalFocusDetails, cloneGoal, normalizeGoalRecord } from "../extensions/goal-record.ts";
 import { writeActiveGoalFile, parseGoalFile } from "../extensions/storage/goal-files.ts";
 import { invalidateGoalSettingsCache, parseGoalSettings, saveGoalSettingsFileConfig, loadGoalSettings } from "../extensions/goal-settings.ts";
-import { normalizeGoalScheduler } from "../extensions/goal-scheduler-state.ts";
+import { normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
 
 async function fixture(t: TestContext, limit?: number, owner = "owner", existing?: string) {
 	const cwd = existing ?? mkdtempSync(path.join(tmpdir(), "goal-scheduler-"));
@@ -17,7 +17,7 @@ async function fixture(t: TestContext, limit?: number, owner = "owner", existing
 	process.env.PI_GOAL_GLOBAL_SETTINGS_FILE = path.join(cwd, "absent-global.json");
 	if (!existing) {
 		mkdirSync(path.join(cwd, ".pi"), { recursive: true });
-		writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify(limit ? { maxAutonomousRuns: limit } : {}));
+		writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify(limit !== undefined ? { maxAutonomousRuns: limit } : {}));
 	}
 	invalidateGoalSettingsCache();
 	const goal = createGoal({ objective: "Test explicit scheduling", autoContinue: true, sisyphus: false });
@@ -186,10 +186,75 @@ test("update_goal rejects mixed forms and scheduler cloning protects rollback", 
 
 test("maxAutonomousRuns is strictly parsed, layered, and removable", async t => {
 	const h = await fixture(t);
-	for (const n of [0, -1, 1.1, "1x", Number.MAX_SAFE_INTEGER + 1]) assert.equal(parseGoalSettings({ maxAutonomousRuns: n }).maxAutonomousRuns, undefined);
-	for (const n of [1, "25", Number.MAX_SAFE_INTEGER]) assert.equal(parseGoalSettings({ maxAutonomousRuns: n }).maxAutonomousRuns, Number(n));
+	for (const n of [-1, 1.1, "1x", Number.MAX_SAFE_INTEGER + 1]) assert.equal(parseGoalSettings({ maxAutonomousRuns: n }).maxAutonomousRuns, undefined);
+	for (const n of [0, "0", 1, "25", Number.MAX_SAFE_INTEGER]) assert.equal(parseGoalSettings({ maxAutonomousRuns: n }).maxAutonomousRuns, Number(n));
 	saveGoalSettingsFileConfig(h.cwd, { maxAutonomousRuns: 4 }); assert.equal(loadGoalSettings(h.cwd).maxAutonomousRuns, 4);
 	saveGoalSettingsFileConfig(h.cwd, {}); assert.equal(loadGoalSettings(h.cwd).maxAutonomousRuns, undefined);
+});
+
+test("project zero disables an inherited allowance without renewing consumption", async t => {
+	const h = await fixture(t);
+	writeFileSync(process.env.PI_GOAL_GLOBAL_SETTINGS_FILE!, JSON.stringify({ maxAutonomousRuns: 20 }));
+	invalidateGoalSettingsCache();
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin(); h.ready(); h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1); h.admit();
+	assert.equal(h.core.state.goal?.scheduler?.used, 1);
+	h.ready(); h.core.scheduler.settled(h.ctx);
+	saveGoalSettingsFileConfig(h.cwd, { maxAutonomousRuns: 0 });
+	invalidateGoalSettingsCache();
+	assert.equal(loadGoalSettings(h.cwd).maxAutonomousRuns, 0, "zero survives persistence and overrides global 20");
+	assert.match(schedulerSummary(h.core.state.goal?.scheduler, 0), /1\/0 \(automatic continuation disabled\)/);
+	t.mock.timers.tick(1);
+	assert.equal(h.sent.length, 1, "pending delivery is cancelled");
+	assert.equal(h.core.state.goal?.status, "paused");
+	assert.equal(h.core.scheduler.resume(h.ctx), false);
+	saveGoalSettingsFileConfig(h.cwd, {});
+	assert.equal(loadGoalSettings(h.cwd).maxAutonomousRuns, 20, "unsetting restores inheritance");
+	assert.equal(h.core.state.goal?.scheduler?.used, 1);
+	assert.equal(h.sent.length, 1);
+});
+
+for (const kind of ["recovery", "repair"] as const) {
+	for (const expiry of ["before scheduling", "before delivery"] as const) {
+		test(`${kind} respects an outstanding wait deadline expiring ${expiry}`, async t => {
+			const h = await fixture(t, 10);
+			t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+			h.begin();
+			assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } }).terminate, true);
+			h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
+			let busy = true;
+			const ctx = { ...h.ctx, isIdle: () => !busy };
+			if (expiry === "before scheduling") t.mock.timers.tick(2000);
+			h.core.scheduler.settled(ctx, kind === "repair");
+			if (kind === "recovery") h.core.scheduler.recover(ctx);
+			if (expiry === "before delivery") {
+				assert.equal(h.core.state.goal?.scheduler?.phase, "ready");
+				assert.equal(h.core.state.goal?.scheduler?.decision?.kind, "ready");
+				t.mock.timers.tick(2000);
+			}
+			busy = false; t.mock.timers.tick(50);
+			assert.equal(h.sent.length, 1, "no dispatch after the polling check");
+			assert.equal(h.core.state.goal?.scheduler?.used, 1, "denied dispatch spends no allowance");
+			assert.equal(h.core.state.goal?.status, "paused");
+			assert.match(h.core.state.goal?.pauseReason ?? "", /Wait deadline reached/);
+		});
+	}
+}
+
+test("network backoff crossing a wait deadline cannot dispatch recovery", async t => {
+	const h = await fixture(t, 10);
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin();
+	h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
+	h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
+	h.core.scheduler.settled(h.ctx, false);
+	const plan = h.core.runtime.scheduleNetworkErrorRetry(h.ctx, h.core.state.goal!);
+	assert.equal(plan?.delayMs, 5000);
+	t.mock.timers.tick(5001);
+	assert.equal(h.sent.length, 1);
+	assert.equal(h.core.state.goal?.scheduler?.used, 1);
+	assert.equal(h.core.state.goal?.status, "paused");
+	assert.match(h.core.state.goal?.pauseReason ?? "", /Wait deadline reached/);
 });
 
 test("lowering allowance before delivery stops the wake without resetting usage", async t => {

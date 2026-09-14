@@ -30,3 +30,15 @@ Added an actual SDK retry/compaction variant: ten provider requests (eight work 
 User requested low context overhead and off-by-default operation. Updated PRODUCT then TECH, shortened duplicate policy/schema descriptions, and made detailed guidance conditional on configured allowance. Default mode remains discoverable by agents through a short settings instruction. Typical default overhead fell from 1,833 to 966 characters (about 242 estimated tokens); no tool-schema hiding or reload is needed to enable it. A cache regression verifies settings changes select the right policy.
 
 Final validation: 982 tests pass, zero skips/failures; manifest self-check and 934 unit tests pass. TypeScript, ESLint, context gate (24 fixtures), provider cross-check (six real SDK payloads), NAF/runtime-token/comprehensive benchmark gates, ranking tests, production audit (zero vulnerabilities), package dry run and whitespace checks pass. No package version or dependency changes. PR remains open; no merge or publication.
+
+## PR review fixes
+
+User approved the review findings. Updated PRODUCT then TECH to require outstanding wait deadlines for recovery/repair dispatches and an explicit project-level zero allowance. The review reproduced a network retry after a polling wait expired and a project zero falling back to global 20.
+
+Moved retained-wait deadline checks outside the waiting-phase branches in scheduling and the atomic dispatch gate. Recovery and repair cannot bypass expiry by transitioning to ready, including when the host delays delivery. Added four scheduling/delivery deadline regressions and a real runtime-backoff regression; denied dispatches leave consumption unchanged.
+
+Parsing, persistence and the settings menu now accept zero, with disabled labels in settings reports and scheduler summaries. Added regressions for the menu, project-over-global zero, pending-dispatch cancellation, denied resume, restored inheritance and retained consumption. Disabled prompt guidance also remains selected for zero. README now includes prominent upgrade instructions and explains that an agent-editable allowance is not a hard spending cap.
+
+The first context gate run detected the intentional three-character prompt clarification from “is set” to “> 0”. Remeasured all 24 fixtures, updated the baseline/CONTEXT-AFTER and documented the 42-character aggregate reduction in CONTEXT.md; no gate invariant was relaxed.
+
+Validation: all 989 tests pass (including both real SDK scheduler fixtures), with zero failures/skips. TypeScript, ESLint, manifest self-check (941 unit tests), context gate, six real SDK provider-payload cross-checks and git diff whitespace checks pass. No package version or dependency change.

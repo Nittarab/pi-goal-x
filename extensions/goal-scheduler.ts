@@ -269,9 +269,10 @@ export class GoalScheduler {
 			if (!["ready", "waiting"].includes(s.phase)) return;
 			if (budgetReached(g)) { this.pause(ctx, "Goal token budget exhausted."); return; }
 			if (!this.available(ctx, s)) { this.pause(ctx, this.allowanceReason(ctx)); return; }
+			// Recovery and repair retain the wait while changing phase to ready.
+			if (s.wait && Date.now() >= s.wait.deadline) { this.pause(ctx, "Wait deadline reached."); return; }
 			if (s.phase === "waiting" && s.wait) {
 				this.core.clearActiveAccounting();
-				if (Date.now() >= s.wait.deadline) { this.pause(ctx, "Wait deadline reached."); return; }
 				if (!s.wait.signalled && s.wait.remainingChecks === 0) { this.pause(ctx, "Wait check allowance exhausted."); return; }
 				if (!s.wait.signalled && (s.wait.nextCheckAt === undefined || s.wait.nextCheckAt > Date.now())) {
 					const due = Math.min(s.wait.deadline, s.wait.nextCheckAt ?? Infinity);
@@ -294,9 +295,9 @@ export class GoalScheduler {
 			this.update(ctx, (s, g) => {
 				if (s.generation !== generation) throw new Error("Scheduling generation changed.");
 				if (g.status !== "active" || !g.autoContinue || budgetReached(g) || !this.available(ctx, s)) throw new Error(this.allowanceReason(ctx));
+				if (s.wait && Date.now() >= s.wait.deadline) throw new Error("Wait deadline reached.");
 				let kind = s.phase === "ready" && s.decision?.kind === "ready" ? s.decision.purpose : undefined;
 				if (s.phase === "waiting" && s.wait) {
-					if (Date.now() >= s.wait.deadline) throw new Error("Wait deadline reached.");
 					if (s.wait.signalled) kind = "wake";
 					else if (s.wait.nextCheckAt !== undefined && s.wait.nextCheckAt <= Date.now() && (s.wait.remainingChecks ?? 0) > 0) { kind = "check"; s.wait.remainingChecks!--; }
 				}

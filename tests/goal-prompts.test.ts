@@ -430,4 +430,7 @@ test("allowance configuration refreshes cached guidance without bloating disable
 	assert.match(on, /Saved decisions terminate/);
 	assert.ok(on.length - off.length < 250);
 	assert.equal(goalPrompt(current), off, "disabling again must not reuse enabled guidance");
+	const zero = goalPrompt(current, { maxAutonomousRuns: 0 });
+	assert.doesNotMatch(zero, /Saved decisions terminate/);
+	assert.match(zero, /0\/0 \(automatic continuation disabled\)/);
 });

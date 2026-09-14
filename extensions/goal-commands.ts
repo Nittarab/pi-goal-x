@@ -393,7 +393,7 @@ export function registerGoalCommands(core: GoalCore): void {
 			return config[key] === true ? "true" : "false";
 		}
 		if (key === "subtaskDepth") return config.subtaskDepth !== undefined ? String(config.subtaskDepth) : "1";
-		if (key === "maxAutonomousRuns") return String(config.maxAutonomousRuns ?? "not configured (disabled)");
+		if (key === "maxAutonomousRuns") return config.maxAutonomousRuns === 0 ? "0 (disabled)" : String(config.maxAutonomousRuns ?? "not configured (disabled)");
 		if (key === "stallTimeoutMinutes") return config.stallTimeoutMinutes !== undefined ? String(config.stallTimeoutMinutes) : "0";
 		if (key === "objectiveMaxChars") return config.objectiveMaxChars !== undefined ? String(config.objectiveMaxChars) : "0";
 		if (key === "keybindings") return config.keybindings ? `${config.keybindings.dashboard.toggleExpand}, ${config.keybindings.dashboard.scrollUp}, ${config.keybindings.dashboard.scrollDown}` : "(default)";
@@ -544,7 +544,7 @@ export function registerGoalCommands(core: GoalCore): void {
 				}
 
 				if (row.kind === "positiveInteger") {
-					const min = row.path ? 1 : ((row.key === "stallTimeoutMinutes" || row.key === "objectiveMaxChars") ? 0 : 1);
+					const min = row.path ? 1 : ((row.key === "stallTimeoutMinutes" || row.key === "objectiveMaxChars" || row.key === "maxAutonomousRuns") ? 0 : 1);
 					const actions = [`Set ${scope} override...`];
 					if (hasLocalOverride) actions.push(inheritLabel);
 					actions.push("Cancel");

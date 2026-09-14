@@ -102,7 +102,7 @@ export interface GoalSettingsResolvedShape {
 	auditorProjectResources?: boolean;
 	/** F5: stall detector timeout in minutes (0 = off). */
 	stallTimeoutMinutes?: number;
-	/** Total extension-generated runs per creation/resume period; absent disables them. */
+	/** Total extension-generated runs per creation/resume period; zero disables, absent inherits. */
 	maxAutonomousRuns?: number;
 	/**
 	 * Maximum objective length in characters (0/unset = no limit, the
@@ -402,7 +402,7 @@ export function parseSettingsLayer(
 			}
 			case "maxAutonomousRuns": {
 				const n = typeof value === "number" ? value : typeof value === "string" && /^[0-9]+$/.test(value.trim()) ? Number(value) : NaN;
-				if (!Number.isSafeInteger(n) || n < 1) diagnostics.push(diagnostic("invalid_value", "maxAutonomousRuns must be a positive safe integer", key));
+				if (!Number.isSafeInteger(n) || n < 0) diagnostics.push(diagnostic("invalid_value", "maxAutonomousRuns must be a nonnegative safe integer (0 disables automatic continuation)", key));
 				else layer.maxAutonomousRuns = n;
 				break;
 			}
@@ -1248,7 +1248,7 @@ export function effectiveSettingsReport(cwd: string, env: NodeJS.ProcessEnv = pr
 		{ key: "thinkingLevel", label: "thinking_level", format: () => snapshot.value.thinkingLevel ?? "(default)" },
 		{ key: "auditorProjectResources", label: "auditor project resources", format: () => String(snapshot.value.auditorProjectResources) },
 		{ key: "hideUnfocusedBanner", label: "hide unfocused banner", format: () => String(snapshot.value.hideUnfocusedBanner) },
-		{ key: "maxAutonomousRuns", label: "autonomous run allowance", format: () => String(snapshot.value.maxAutonomousRuns ?? "not configured (disabled)") },
+		{ key: "maxAutonomousRuns", label: "autonomous run allowance", format: () => snapshot.value.maxAutonomousRuns === 0 ? "0 (disabled)" : String(snapshot.value.maxAutonomousRuns ?? "not configured (disabled)") },
 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", format: () => String(snapshot.value.stallTimeoutMinutes) },
 		{ key: "objectiveMaxChars", label: "max objective length (0 = none)", format: () => String(snapshot.value.objectiveMaxChars) },
 		{ key: "networkRecovery", label: "network recovery attempts (0 = unbounded)", format: () => String(snapshot.value.networkRecovery?.maxAttempts ?? 0) },
