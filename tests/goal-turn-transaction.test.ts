@@ -1,13 +1,10 @@
 /**
  * P1-3: per-turn transaction buffer.
  *
- * During a turn (turn_start … turn_end), task/status/usage mutations
- * accumulate in memory and flush ONCE at turn end — one lock acquire, one
- * goal-file write, one batched ledger append. The tests assert:
- *   - mid-turn: in-memory state is current but the disk file is NOT yet written;
- *   - turn_end: disk + ledger catch up in one flush;
- *   - update_goal(complete) flushes the buffer BEFORE the auditor runs so the
- *     auditor (a separate session) reads fresh task state.
+ * Critical mutations persist immediately. The tests assert:
+ *   - mid-turn: a successful task mutation is already on disk;
+ *   - update_goal(complete) sees flushed task state for the auditor;
+ *   - user Esc pause still persists immediately.
  */
 
 import { readFileSync } from "node:fs";
@@ -72,7 +69,7 @@ function ledgerText(cwd: string) {
 }
 
 describe("P1-3 per-turn transaction buffer", () => {
-	it("buffers in-turn task mutations and flushes once at turn_end", async () => {
+	it("persists in-turn task mutations immediately", async () => {
 		const f = fixture();
 		try {
 			const h = makeHarness(f.cwd, undefined, f.sessionEntries);
@@ -80,7 +77,6 @@ describe("P1-3 per-turn transaction buffer", () => {
 			await h.handlers.get("before_agent_start")?.({ systemPrompt: "p", prompt: "p", systemPromptOptions: {} }, h.ctx);
 			const setTasks = h.tools.get("set_goal_tasks");
 			await setTasks.execute("st", { tasks: [{ id: "t1", title: "T1" }, { id: "t2", title: "T2" }, { id: "t3", title: "T3" }], block_completion: false }, new AbortController().signal, undefined, h.ctx);
-			// set_goal_tasks stops the turn: close it, then open the buffered turn.
 			await h.handlers.get("turn_end")?.({ message: { role: "assistant", stopReason: "stop", usage: { input: 0, output: 0 } } }, h.ctx);
 			await h.handlers.get("turn_start")?.({}, h.ctx);
 
@@ -89,20 +85,11 @@ describe("P1-3 per-turn transaction buffer", () => {
 				await update.execute("u", { task_id: id, status: "complete", evidence: `done ${id}` }, new AbortController().signal, undefined, h.ctx);
 			}
 
-			// Mid-turn: in-memory state is current, disk is NOT yet written.
-			const before = goalFileText(f.cwd, f.goal);
-			assert.match(before, /\[ \] t1: T1/, "disk still shows pending mid-turn");
-			assert.match(before, /\[ \] t2: T2/, "disk still shows pending mid-turn");
-			const ledgerBefore = ledgerText(f.cwd);
-			assert.equal((ledgerBefore.match(/task_complete/g) ?? []).length, 0, "no task_complete ledger events mid-turn");
-
-			// turn_end: one flush writes the goal + batches the ledger.
-			await h.handlers.get("turn_end")?.({ message: { role: "assistant", stopReason: "stop", usage: { input: 0, output: 0 } } }, h.ctx);
-			const after = goalFileText(f.cwd, f.goal);
-			assert.match(after, /\[x\] t1: T1/, "disk catches up after flush");
-			assert.match(after, /\[x\] t3: T3/, "disk catches up after flush");
-			const ledgerAfter = ledgerText(f.cwd);
-			assert.equal((ledgerAfter.match(/task_complete/g) ?? []).length, 3, "three task_complete events after flush");
+			const mid = goalFileText(f.cwd, f.goal);
+			assert.match(mid, /\[x\] t1: T1/, "successful task completion is on disk mid-turn");
+			assert.match(mid, /\[x\] t3: T3/, "successful task completion is on disk mid-turn");
+			const ledgerMid = ledgerText(f.cwd);
+			assert.equal((ledgerMid.match(/task_complete/g) ?? []).length, 3, "task_complete events land with the file write");
 		} finally {
 			f.cleanup();
 		}
