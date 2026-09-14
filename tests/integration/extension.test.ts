@@ -459,7 +459,6 @@ describe("five-tool handler integration", () => {
 				assert.ok(lines.some((l) => l === "  autoSelectSingleGoal: false (default)"));
 				assert.ok(lines.some((l) => l === "  hideUnfocusedBanner: false (default)"));
 				assert.ok(lines.some((l) => l === "  stall timeout (minutes): 0 (default)"));
-				assert.ok(lines.some((l) => l === "  continuation idle delay (ms, 0 = immediate): 300000 (default)"));
 				assert.ok(lines.some((l) => l === "  max objective length (0 = none): 0 (default)"), "objective length row defaults to 0");
 			} finally {
 				f.cleanup();

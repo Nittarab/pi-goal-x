@@ -102,8 +102,8 @@ export interface GoalSettingsResolvedShape {
 	auditorProjectResources?: boolean;
 	/** F5: stall detector timeout in minutes (0 = off). */
 	stallTimeoutMinutes?: number;
-	/** Delay automatic follow-ups after read/search/bookkeeping-only runs (0 = immediate). */
-	continuationIdleDelayMs?: number;
+	/** Total extension-generated runs per creation/resume period; absent disables them. */
+	maxAutonomousRuns?: number;
 	/**
 	 * Maximum objective length in characters (0/unset = no limit, the
 	 * default; >0 caps objectives in create_goal, propose_goal_draft, and
@@ -297,14 +297,6 @@ function asPositiveInt(value: unknown): number | undefined {
 	return undefined;
 }
 
-/** Node timers overflow beyond signed 32-bit delays; reject rather than wake immediately. */
-function asContinuationIdleDelay(value: unknown): number | undefined {
-	if (typeof value === "string" && !/^[0-9]+$/.test(value.trim())) return undefined;
-	if (typeof value !== "number" && typeof value !== "string") return undefined;
-	const parsed = Number(value);
-	return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 2_147_483_647 ? parsed : undefined;
-}
-
 /** Positive-integer-or-zero parser (for settings where 0 = off / no limit). */
 function asNonNegativeInt(value: unknown): number | undefined {
 	if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
@@ -338,7 +330,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 	"autoSelectSingleGoal",
 	"auditorProjectResources",
 	"stallTimeoutMinutes",
-	"continuationIdleDelayMs",
+	"maxAutonomousRuns",
 	"objectiveMaxChars",
 	"keybindings",
 	"hideUnfocusedBanner",
@@ -408,10 +400,10 @@ export function parseSettingsLayer(
 				else layer.subtaskDepth = parsed;
 				break;
 			}
-			case "continuationIdleDelayMs": {
-				const parsed = asContinuationIdleDelay(value);
-				if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", `${key} must be an integer from 0 to 2147483647`, key));
-				else layer.continuationIdleDelayMs = parsed;
+			case "maxAutonomousRuns": {
+				const n = typeof value === "number" ? value : typeof value === "string" && /^[0-9]+$/.test(value.trim()) ? Number(value) : NaN;
+				if (!Number.isSafeInteger(n) || n < 1) diagnostics.push(diagnostic("invalid_value", "maxAutonomousRuns must be a positive safe integer", key));
+				else layer.maxAutonomousRuns = n;
 				break;
 			}
 			case "stallTimeoutMinutes":
@@ -690,7 +682,7 @@ function pathKey(...parts: Array<string | undefined>): string {
  * Resolve both layers + env into one snapshot with per-leaf provenance.
  * Nested keybindings resolve leaf-by-leaf from the SPARSE layers.
  */
-const resolutionEnvKeys = ["PI_GOAL_CONTINUATION_IDLE_DELAY_MS", "PI_GOAL_DISABLE_TASKS", "PI_GOAL_DISABLE_CONTRACTS", "PI_GOAL_OBJECTIVE_MAX_CHARS", "PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS", "PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS"] as const;
+const resolutionEnvKeys = ["PI_GOAL_DISABLE_TASKS", "PI_GOAL_DISABLE_CONTRACTS", "PI_GOAL_OBJECTIVE_MAX_CHARS", "PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS", "PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS"] as const;
 const resolvedSettingsCache: Array<{global: SettingsLayerRead; project: SettingsLayerRead; environment: Array<string | undefined>; snapshot: SettingsSnapshot}> = [];
 
 function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): SettingsSnapshot {
@@ -798,13 +790,10 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		globalValue: global.layer.oracle?.maxFailedAttemptsPerBlocker,
 		defaultValue: 2,
 	}));
-	const idleDelayEnv = asContinuationIdleDelay(env.PI_GOAL_CONTINUATION_IDLE_DELAY_MS);
-	const continuationIdleDelayMs = track("continuationIdleDelayMs", resolveLeaf<number>({
-		envValue: idleDelayEnv,
-		projectValue: project.layer.continuationIdleDelayMs,
-		globalValue: global.layer.continuationIdleDelayMs,
-		defaultValue: 300_000,
-		envVar: "PI_GOAL_CONTINUATION_IDLE_DELAY_MS",
+	const maxAutonomousRuns = track("maxAutonomousRuns", resolveLeaf<number | undefined>({
+		projectValue: project.layer.maxAutonomousRuns,
+		globalValue: global.layer.maxAutonomousRuns,
+		defaultValue: undefined,
 	}));
 	const stallTimeoutMinutes = track("stallTimeoutMinutes", resolveLeaf<number>({
 		projectValue: project.layer.stallTimeoutMinutes,
@@ -865,7 +854,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		auditorProjectResources,
 		hideUnfocusedBanner,
 		stallTimeoutMinutes,
-		continuationIdleDelayMs,
+		maxAutonomousRuns,
 		objectiveMaxChars,
 		keybindings,
 		networkRecovery: {
@@ -1215,7 +1204,7 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 		if (so.maxFailedAttemptsPerBlocker !== undefined) o.maxFailedAttemptsPerBlocker = so.maxFailedAttemptsPerBlocker;
 		if (Object.keys(o).length > 0) persisted.oracle = o;
 	}
-	if (settings.continuationIdleDelayMs !== undefined) persisted.continuationIdleDelayMs = settings.continuationIdleDelayMs;
+	if (settings.maxAutonomousRuns !== undefined) persisted.maxAutonomousRuns = settings.maxAutonomousRuns;
 	if (settings.stallTimeoutMinutes !== undefined) persisted.stallTimeoutMinutes = settings.stallTimeoutMinutes;
 	if (settings.objectiveMaxChars !== undefined) persisted.objectiveMaxChars = settings.objectiveMaxChars;
 	if (settings.keybindings?.dashboard) {
@@ -1232,7 +1221,6 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 export function envOverrideFor(key: keyof GoalSettings | "settingsFile", env: NodeJS.ProcessEnv = process.env): string | null {
 	if (key === "disableTasks" && env.PI_GOAL_DISABLE_TASKS !== undefined) return "PI_GOAL_DISABLE_TASKS";
 	if (key === "disableContracts" && env.PI_GOAL_DISABLE_CONTRACTS !== undefined) return "PI_GOAL_DISABLE_CONTRACTS";
-	if (key === "continuationIdleDelayMs" && env.PI_GOAL_CONTINUATION_IDLE_DELAY_MS !== undefined) return "PI_GOAL_CONTINUATION_IDLE_DELAY_MS";
 	if (key === "objectiveMaxChars" && env.PI_GOAL_OBJECTIVE_MAX_CHARS !== undefined) return "PI_GOAL_OBJECTIVE_MAX_CHARS";
 	if (key === "networkRecovery") {
 		if (env.PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS !== undefined) return "PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS";
@@ -1260,7 +1248,7 @@ export function effectiveSettingsReport(cwd: string, env: NodeJS.ProcessEnv = pr
 		{ key: "thinkingLevel", label: "thinking_level", format: () => snapshot.value.thinkingLevel ?? "(default)" },
 		{ key: "auditorProjectResources", label: "auditor project resources", format: () => String(snapshot.value.auditorProjectResources) },
 		{ key: "hideUnfocusedBanner", label: "hide unfocused banner", format: () => String(snapshot.value.hideUnfocusedBanner) },
-		{ key: "continuationIdleDelayMs", label: "continuation idle delay (ms)", format: () => String(snapshot.value.continuationIdleDelayMs) },
+		{ key: "maxAutonomousRuns", label: "autonomous run allowance", format: () => String(snapshot.value.maxAutonomousRuns ?? "not configured (disabled)") },
 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", format: () => String(snapshot.value.stallTimeoutMinutes) },
 		{ key: "objectiveMaxChars", label: "max objective length (0 = none)", format: () => String(snapshot.value.objectiveMaxChars) },
 		{ key: "networkRecovery", label: "network recovery attempts (0 = unbounded)", format: () => String(snapshot.value.networkRecovery?.maxAttempts ?? 0) },

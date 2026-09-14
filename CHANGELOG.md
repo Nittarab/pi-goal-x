@@ -4,9 +4,10 @@ All notable changes to pi-goal-x are documented here.
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- **Hygiene-only continuation loops (#55)** — automatic follow-ups after read/search/bookkeeping-only runs wait five minutes by default. Configure `continuationIdleDelayMs` or `PI_GOAL_CONTINUATION_IDLE_DELAY_MS` (`0` restores immediate scheduling). Active tool chains, write/edit/bash runs, explicit kickoff and network recovery retain their timing. Scheduling waits for agent settlement; user and background completion messages supersede the sleeping checkpoint.
+- **Explicit execution contract (#55)** — automatic goal runs require a saved ready/wait decision and configured `maxAutonomousRuns`; unset disables automatic continuation. `/goal-resume` renews the allowance. Tool names no longer determine continuation.
+- Added durable, bounded waits, `pi-goal:wake` signals, atomic generation-tagged dispatch claims, one-shot contract repair, and scheduling status. Existing goals remain readable; interrupted dispatches require explicit resume. Independently triggered host runs remain outside the extension's allowance.
 
 ## [0.31.3] — 2026-09-14
 

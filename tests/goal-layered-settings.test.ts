@@ -279,23 +279,3 @@ describe("scoped mutation", () => {
 		});
 	});
 });
-
-it("continuation cooldown defaults, layers, environment cache and provenance", () => {
-	withTempDir(dir => {
-		const globalFile = path.join(dir, "global.json");
-		const env = { PI_GOAL_GLOBAL_SETTINGS_FILE: globalFile };
-		assert.equal(loadGoalSettings(dir, env).continuationIdleDelayMs, 300000);
-		writeJson(globalFile, { continuationIdleDelayMs: 60000 });
-		invalidateGoalSettingsCache();
-		assert.equal(loadGoalSettings(dir, env).continuationIdleDelayMs, 60000);
-		writeJson(goalSettingsPath(dir, env), { continuationIdleDelayMs: 0 });
-		invalidateGoalSettingsCache();
-		assert.equal(loadGoalSettings(dir, env).continuationIdleDelayMs, 0);
-		const override = { ...env, PI_GOAL_CONTINUATION_IDLE_DELAY_MS: "2000" };
-		const snapshot = loadSettingsSnapshot(dir, override);
-		assert.equal(snapshot.value.continuationIdleDelayMs, 2000);
-		assert.equal(snapshot.provenance.get("continuationIdleDelayMs")?.source, "environment");
-		assert.equal(loadGoalSettings(dir, { ...override, PI_GOAL_CONTINUATION_IDLE_DELAY_MS: "3000" }).continuationIdleDelayMs, 3000);
-		assert.equal(loadGoalSettings(dir, { ...override, PI_GOAL_CONTINUATION_IDLE_DELAY_MS: "2147483648" }).continuationIdleDelayMs, 0);
-	});
-});

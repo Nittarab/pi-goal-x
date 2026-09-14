@@ -1,11 +1,17 @@
-# Continuation cooldown (#55)
+# Explicit execution contract (#55)
 
-Prevent read/search/bookkeeping-only runs from injecting full-context checkpoints at model round-trip speed. Default continuationIdleDelayMs is 300000 (five minutes), with project/global settings and PI_GOAL_CONTINUATION_IDLE_DELAY_MS override; zero explicitly restores immediate follow-ups. The limit is 2147483647 ms to avoid timer overflow.
+Supersedes the tool-name cooldown in PR #58. No tool, changed output, or unfinished goal implicitly authorizes another run. Each execution ends with an explicit ready/wait/complete/pause/blocked decision. Missing decisions receive at most one repair run, subject to allowance, then pause.
 
-Reads and searches remain useful work. Their tool chains run normally; only the next autonomous run after settlement waits. Runs containing write/edit/bash retain immediate cadence. Shell commands are opaque: this policy does not claim to detect no-op shell commands or semantic progress. The no-tool gate from #54 stays intact.
+maxAutonomousRuns is a positive safe integer in global/project settings; absent means no automatic runs. Agents may configure settings. Persist consumed runs across messages, reloads, focus changes and settings edits; only goal creation or explicit user /goal-resume renews the period. The limit covers extension-generated kickoff, continuation, polling, event wake, repair and network recovery. It does not cap host tool loops or model turns started independently by another extension. Existing token budgets still apply.
 
-Creation, resume, session kickoff, compaction and network recovery keep their existing timing. User input or a producer-delivered follow-up cancels the sleeping checkpoint and runs normally. Pausing, stopping, changing focus, disabling auto-continue or closing the session prevents stale delivery. The cooldown is an in-session timer, not a durable scheduler.
+update_goal retains lifecycle forms and adds mutually exclusive continuation.ready(next_action) and continuation.wait(reason, deadline, optional polling interval_seconds/max_checks). Returned wait_id must be reused for subsequent checks; re-declaration cannot reset counters or deadline. Scheduling declarations persist before reporting success and terminate the execution segment. Additional model work invalidates a prior decision.
 
-Use the existing pending-message and before-agent-start lifecycle for background completions; do not subscribe to undocumented third-party producer events or infer that all work must wait while any child is running. The optional producer-specific gating in the issue is not necessary to prevent hygiene polling loops.
+Persist ownership/generation, decisions, waits, counters and dispatch identity. Authorize atomically before every extension wake. Reject stale/duplicate messages; an ambiguous claimed dispatch after a crash requires resume. Follow real agent_start through agent_settled, including custom-message entry, queued messages, retries and compaction.
 
-Show a concise notification when a run enters cooldown so users understand why an active goal is waiting. Open a PR; do not merge or release it in this task.
+Waiting spends no model turns until a signal or explicit bounded check. Deadline/check/allowance exhaustion pauses without another model call. Restore owning-session waits without catch-up; require explicit resume for another session. Pause/complete/clear/focus/user takeover invalidate delivery. Waiting does not accrue active time. Closed sessions do not execute timers.
+
+Document pi-goal:wake {goalId, waitToken}: matching signals authorize a wake; stale/duplicate signals do nothing. Register before starting a producer, or retain its result until registration. Ordinary third-party follow-ups remain host work and invalidate pending scheduling; their model spending is outside this gate.
+
+Show next action/wait reason, timing/check counts, and allowance usage in dashboard, status and get_goal. /goal-resume means continue now and renew, but cannot invent a limit. Revise PR #58; do not merge, bump version or publish.
+
+Context constraint (user steering): automatic scheduling remains off by default and agents may enable it through settings. Keep the disabled-mode prompt short; include detailed scheduling guidance only when an allowance is configured. Measure and publish overhead; avoid duplicate schema examples in the prompt.

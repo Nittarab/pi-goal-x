@@ -278,6 +278,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		const health = /^\s*health\b/i.test(rawArgs);
 		const ledger = readGoalLedger(ctx);
 		const text = buildGoalStatusText({
+			maxAutonomousRuns: loadGoalSettings(ctx.cwd).maxAutonomousRuns,
 			goal: view,
 			focused: view !== null && core.focusedGoalId === view.id,
 			otherOpenGoals: otherCount,
@@ -332,33 +333,10 @@ export function registerGoalCommands(core: GoalCore): void {
 		if (!core.state.goal && otherOpenGoalCount(core.goalsById, null) > 0) {
 			const selected = await chooseOpenGoal(ctx, "Resume or focus open goal");
 			if (!selected) return;
-			if (selected.status === "active") {
-				core.armFocusedContinuation(ctx);
-				ctx.ui.notify(`Goal focused: ${oneLineSummary(selected)}`, "info");
-				return;
-			}
 		}
-		const resumeGate = validateResumeGoal(core.state.goal);
-		if (!resumeGate.ok) {
-			const level = resumeGate.message.includes("already running") ? "info" : "warning";
-			ctx.ui.notify(resumeGate.message, level);
-			return;
-		}
-		if (!core.state.goal) throw new Error("Goal disappeared during resume validation.");
-		core.setGoal(
-			{
-				...mergeGoalPromptFromDisk(ctx, core.state.goal),
-				status: "active",
-				autoContinue: true,
-				stopReason: undefined,
-				pauseReason: undefined,
-				pauseSuggestedAction: undefined,
-			},
-			ctx,
-		);
-		core.beginAccounting();
-		ctx.ui.notify("Goal resumed.", "info");
-		core.queueContinuation(ctx, true);
+		if (!core.state.goal) { ctx.ui.notify("No goal is focused.", "warning"); return; }
+		if (!core.scheduler.resume(ctx)) return;
+		ctx.ui.notify("Goal resumed; autonomous allowance renewed.", "info");
 		// Append ledger event for resumption
 		try {
 			core.goalService.appendEvents(ctx, [{
@@ -392,7 +370,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		{ key: "autoSelectSingleGoal", label: "autoSelectSingleGoal", section: "Goal behavior", kind: "boolean" },
 		{ key: "hideUnfocusedBanner", label: "hideUnfocusedBanner", section: "Goal behavior", kind: "boolean" },
 		{ key: "disableContracts", label: "disableContracts", section: "Goal behavior", kind: "boolean" },
-		{ key: "continuationIdleDelayMs", label: "continuation idle delay (ms, 0 = immediate)", section: "Goal behavior", kind: "positiveInteger" },
+		{ key: "maxAutonomousRuns", label: "autonomous run allowance", section: "Goal behavior", kind: "positiveInteger" },
 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", section: "Goal behavior", kind: "positiveInteger" },
 		{ key: "objectiveMaxChars", label: "max objective length (0 = none)", section: "Goal behavior", kind: "positiveInteger" },
 		{ key: "disableTasks", label: "disableTasks", section: "Task tracking", kind: "boolean" },
@@ -415,7 +393,7 @@ export function registerGoalCommands(core: GoalCore): void {
 			return config[key] === true ? "true" : "false";
 		}
 		if (key === "subtaskDepth") return config.subtaskDepth !== undefined ? String(config.subtaskDepth) : "1";
-		if (key === "continuationIdleDelayMs") return config.continuationIdleDelayMs !== undefined ? String(config.continuationIdleDelayMs) : "300000";
+		if (key === "maxAutonomousRuns") return String(config.maxAutonomousRuns ?? "not configured (disabled)");
 		if (key === "stallTimeoutMinutes") return config.stallTimeoutMinutes !== undefined ? String(config.stallTimeoutMinutes) : "0";
 		if (key === "objectiveMaxChars") return config.objectiveMaxChars !== undefined ? String(config.objectiveMaxChars) : "0";
 		if (key === "keybindings") return config.keybindings ? `${config.keybindings.dashboard.toggleExpand}, ${config.keybindings.dashboard.scrollUp}, ${config.keybindings.dashboard.scrollDown}` : "(default)";
@@ -566,7 +544,7 @@ export function registerGoalCommands(core: GoalCore): void {
 				}
 
 				if (row.kind === "positiveInteger") {
-					const min = row.path ? 1 : ((row.key === "continuationIdleDelayMs" || row.key === "stallTimeoutMinutes" || row.key === "objectiveMaxChars") ? 0 : 1);
+					const min = row.path ? 1 : ((row.key === "stallTimeoutMinutes" || row.key === "objectiveMaxChars") ? 0 : 1);
 					const actions = [`Set ${scope} override...`];
 					if (hasLocalOverride) actions.push(inheritLabel);
 					actions.push("Cancel");
@@ -583,10 +561,6 @@ export function registerGoalCommands(core: GoalCore): void {
 					const value = input.trim();
 					if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < min) {
 						ctx.ui.notify(`${row.label} must be an integer >= ${min} (e.g. ${min}, ${min + 1}, ${min + 2})`, "warning");
-						continue;
-					}
-					if (row.key === "continuationIdleDelayMs" && Number(value) > 2_147_483_647) {
-						ctx.ui.notify("Continuation idle delay must not exceed 2147483647 ms", "warning");
 						continue;
 					}
 					// Oracle attempt cap is bounded at 3 by the settings parser.
@@ -831,7 +805,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		},
 	});
 	pi.registerCommand("goal-resume", {
-		description: "Resume a paused or blocked goal.",
+		description: "Continue now and renew the configured autonomous-run allowance.",
 		handler: async (_rawArgs, ctx) => {
 			await handleGoalResume(ctx);
 		},

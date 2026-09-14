@@ -419,3 +419,15 @@ test("legacy-v1 restores pre-PR-E wording but never full checkpoint persistence"
 		else process.env.PI_GOAL_PROMPT_PROFILE = originalEnv;
 	}
 });
+
+
+test("allowance configuration refreshes cached guidance without bloating disabled prompts", () => {
+	const current = goal();
+	const off = goalPrompt(current);
+	assert.match(off, /agents may set it/);
+	assert.doesNotMatch(off, /Saved decisions terminate/);
+	const on = goalPrompt(current, { maxAutonomousRuns: 4 });
+	assert.match(on, /Saved decisions terminate/);
+	assert.ok(on.length - off.length < 250);
+	assert.equal(goalPrompt(current), off, "disabling again must not reuse enabled guidance");
+});

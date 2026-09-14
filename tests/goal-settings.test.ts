@@ -547,19 +547,3 @@ test("normalizeTaskItem preserves lightweightSubtasks flag", () => {
 	assert.equal(item.lightweightSubtasks, true);
 	assert.equal(item.subtasks?.length, 1);
 });
-
-test("continuation idle delay validates timer bounds and persists explicit zero", () => {
-	for (const value of [0, 300000, 2147483647, "500"]) {
-		assert.equal(parseGoalSettings({ continuationIdleDelayMs: value }).continuationIdleDelayMs, Number(value));
-	}
-	for (const value of [-1, 1.5, 2147483648, Infinity, "1x"]) {
-		assert.equal(parseGoalSettings({ continuationIdleDelayMs: value }).continuationIdleDelayMs, undefined);
-	}
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-idle-settings-"));
-	try {
-		saveGoalSettingsFileConfig(dir, { continuationIdleDelayMs: 0 });
-		assert.equal(loadGoalSettingsFileConfig(dir).continuationIdleDelayMs, 0);
-		saveGoalSettingsFileConfig(dir, {});
-		assert.equal(loadGoalSettingsFileConfig(dir).continuationIdleDelayMs, undefined);
-	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
-});

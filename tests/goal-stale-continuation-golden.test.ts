@@ -1,3 +1,5 @@
+import { saveGoalSettingsFileConfig } from "../extensions/goal-settings.ts";
+import type { GoalCore } from "../extensions/goal-state.ts";
 /**
  * Stage 0 golden tests: the continuation checkpoint contract.
  *
@@ -85,6 +87,7 @@ function createHarness(cwd: string) {
 	piGoalExtension(mockPi as never);
 
 	return {
+		core: (mockPi as unknown as { _goalCore: GoalCore })._goalCore,
 		handlers,
 		sentMessages,
 		notifications,
@@ -239,10 +242,12 @@ async function countCheckpoints(h: ReturnType<typeof createHarness>): Promise<nu
 }
 
 /** Mark this agent run as having done goal work (empty-turn gate). */
-async function markGoalWork(h: ReturnType<typeof createHarness>): Promise<void> {
+async function declareNextRun(h: ReturnType<typeof createHarness>): Promise<void> {
 	await h.handlers["turn_start"]!({}, h.ctx);
 	await h.handlers["tool_call"]!({ toolName: "bash", args: { command: "ls" } }, h.ctx);
 	await h.handlers["tool_execution_end"]!({}, h.ctx);
+	saveGoalSettingsFileConfig(h.ctx.cwd, { maxAutonomousRuns: 5 });
+	assert.equal(h.core.scheduler.declare(h.ctx, { kind: "ready", next_action: "Continue explicit work" }).terminate, true);
 }
 
 test("provider-error guard: turn_end with stopReason=error never queues a continuation", async () => {
@@ -271,7 +276,7 @@ test("provider-error guard: turn_end with stopReason=error never queues a contin
 	}
 });
 
-test("provider-error guard: normal work turn still queues a continuation", async () => {
+test("ordinary work without a disposition does not queue a continuation", async () => {
 	const { cwd, goal } = fixtureCwd();
 	const h = createHarness(cwd);
 	try {
@@ -289,10 +294,7 @@ test("provider-error guard: normal work turn still queues a continuation", async
 		await h.handlers["tool_execution_end"]!({}, h.ctx);
 		await h.handlers["turn_end"]!({ message: { role: "assistant", content: [{ type: "text", text: "done" }] } }, idleCtx(h.ctx));
 
-		assert.equal(await countCheckpoints(h), 0, "normal work waits for settlement");
-		await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
-		await h.handlers.agent_settled!({}, idleCtx(h.ctx));
-		assert.equal(await countCheckpoints(h), 1, "normal work run must queue a continuation");
+		assert.equal(await countCheckpoints(h), 0, "work tools alone must not authorize continuation");
 	} finally {
 		// temp dir cleanup is best-effort.
 	}
@@ -351,7 +353,7 @@ test("a successful Pi retry clears the pending network-error recovery", async ()
 		await h.handlers["agent_end"]!({
 			messages: [{ role: "assistant", stopReason: "error", errorMessage: "Provider finish_reason: network_error" }],
 		}, idleCtx(h.ctx));
-		await markGoalWork(h);
+		await declareNextRun(h);
 		await h.handlers["agent_end"]!({
 			messages: [{ role: "assistant", stopReason: "end_turn" }],
 		}, idleCtx(h.ctx));
@@ -369,7 +371,7 @@ test("successful agent_end waits for agent_settled before queuing a continuation
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
-		await markGoalWork(h);
+		await declareNextRun(h);
 
 		await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
 		assert.equal(await countCheckpoints(h), 0, "agent_end runs before pi is truly idle");
@@ -401,93 +403,4 @@ test("empty no-tool run does not auto-continue after agent_settled", async () =>
 	}
 });
 
- test("run work survives a text-only final turn but resets for the next run", async () => {
- const { cwd, goal } = fixtureCwd();
- const h = createHarness(cwd);
- await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
- const start = { systemPrompt: "base", prompt: "continue", systemPromptOptions: {} };
- await h.handlers["before_agent_start"]!(start, h.ctx);
- await markGoalWork(h);
- await h.handlers["turn_start"]!({}, h.ctx);
- await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
- await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
- assert.equal(await countCheckpoints(h), 1);
- await h.handlers["before_agent_start"]!(start, h.ctx);
- await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, idleCtx(h.ctx));
- await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
- assert.equal(await countCheckpoints(h), 1, "previous run work must not authorize another checkpoint");
- });
-
-test("hygiene runs wait after settlement, repeat at the deadline, and reset after write work", async (t) => {
-	const { cwd, goal } = fixtureCwd();
-	const h = createHarness(cwd);
-	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
-	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const ctx = idleCtx(h.ctx);
-	const checkpoints = () => h.sentMessages.filter(m => (m.details as any)?.kind === "checkpoint").length;
-	const finish = async () => {
-		await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, ctx);
-		await h.handlers.agent_settled!({}, ctx);
-	};
-	for (const toolName of ["read", "grep", "find", "ls", "update_goal_task", "update_goal", "write", "read"]) {
-		await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
-		await h.handlers.turn_start!({}, ctx);
-		await h.handlers.tool_call!({ toolName, args: { path: "README.md" } }, ctx);
-		await h.handlers.tool_execution_end!({}, ctx);
-		await h.handlers.turn_end!({ message: { role: "assistant", stopReason: "end_turn" } }, ctx);
-		const before = checkpoints();
-		t.mock.timers.tick(300_000);
-		assert.equal(checkpoints(), before, "turn_end cannot schedule before settlement");
-		await h.handlers.turn_start!({}, ctx); // final text-only turn must retain earlier work
-		await finish();
-		if (toolName === "write") {
-			t.mock.timers.tick(1);
-		} else {
-			t.mock.timers.tick(299_999);
-			assert.equal(checkpoints(), before, toolName);
-			t.mock.timers.tick(1);
-		}
-		assert.equal(checkpoints(), before + 1, toolName);
-	}
-	await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
-	await finish();
-	const before = checkpoints();
-	t.mock.timers.tick(300_000);
-	assert.equal(checkpoints(), before, "empty runs still stop");
-	await h.handlers.session_shutdown!({}, ctx);
-});
-
-test("user or background completion input supersedes a cooldown without duplicate delivery", async (t) => {
-	const { cwd, goal } = fixtureCwd();
-	const h = createHarness(cwd);
-	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
-	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const ctx = idleCtx(h.ctx);
-	for (const prompt of ["User: continue now", "Background workflow completed: here is the result"]) {
-		await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
-		await h.handlers.tool_call!({ toolName: "read", args: { path: "README.md" } }, ctx);
-		await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, ctx);
-		await h.handlers.agent_settled!({}, ctx);
-		t.mock.timers.tick(1000);
-		await h.handlers.before_agent_start!({ systemPrompt: "base", prompt }, ctx);
-		t.mock.timers.tick(300_000);
-		assert.equal(h.sentMessages.filter(m => (m.details as any)?.kind === "checkpoint").length, 0);
-	}
-	await h.handlers.session_shutdown!({}, ctx);
-});
-
-test("explicit zero cooldown keeps read-only follow-ups immediate", async (t) => {
-	const { cwd, goal } = fixtureCwd();
-	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ continuationIdleDelayMs: 0 }));
-	const h = createHarness(cwd);
-	await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
-	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const ctx = idleCtx(h.ctx);
-	await h.handlers.before_agent_start!({ systemPrompt: "base", prompt: "continue" }, ctx);
-	await h.handlers.tool_call!({ toolName: "read", args: { path: "README.md" } }, ctx);
-	await h.handlers.agent_end!({ messages: [{ role: "assistant", stopReason: "end_turn" }] }, ctx);
-	await h.handlers.agent_settled!({}, ctx);
-	t.mock.timers.tick(1);
-	assert.equal(h.sentMessages.filter(m => (m.details as any)?.kind === "checkpoint").length, 1);
-	await h.handlers.session_shutdown!({}, ctx);
-});
+// Explicit decision invalidation and actual SDK run-boundary coverage live in goal-scheduler.test.ts and goal-scheduler-sdk.test.ts.
