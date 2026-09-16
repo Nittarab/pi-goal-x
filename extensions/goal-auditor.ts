@@ -17,6 +17,9 @@ import { countTaskSubtree } from "./goal-task-count.ts";
 import { loadGoalSettings, type GoalSettings, type ThinkingLevel } from "./goal-settings.ts";
 import { statusLabel } from "./goal-core.ts";
 
+/** Isolated auditor tool list: no bash/write/edit. Prompt text is not a boundary. */
+export const AUDITOR_READONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
+
 export interface AuditorProgress {
 	/** Current tool being executed by the auditor, if any */
 	currentTool?: string;
@@ -130,7 +133,6 @@ export function labelForReadOnlyTool(toolName: string): string {
 		case "grep": return "Searching content...";
 		case "find": return "Locating files...";
 		case "ls": return "Listing directory...";
-		case "bash": return "Running verification commands...";
 		default: return `Inspecting (${toolName})...`;
 	}
 }
@@ -144,8 +146,6 @@ export function estimateAuditProgress(toolName: string): number {
 			return 25;
 		case "grep":
 			return 50;
-		case "bash":
-			return 75;
 		default:
 			return 25;
 	}
@@ -177,7 +177,7 @@ export function buildGoalAuditorPrompt(args: {
 		"You are the independent completion auditor for pi-goal. Decide whether the user's objective is actually satisfied.",
 		"Audit checklist:",
 		"1. Extract the real success criteria, including every explicit requirement and quality/reader outcome. Disapprove missing, contradicted, weakly verified or uninspectable requirements.",
-		"2. Inspect real artifacts with read/grep/find/ls/bash as needed. Do not mutate files or run destructive commands. Paperwork, intent, file/word counts, build success and plausible summaries alone are not proof.",
+		"2. Inspect real artifacts with read/grep/find/ls as needed. Do not mutate files or run destructive commands. Paperwork, intent, file/word counts, build success and plausible summaries alone are not proof.",
 		...(!args.settings?.disableContracts && args.goal.verificationContract?.trim()
 			? ["3. Verify that the executor has satisfied every item in the <verification_contract>. If any item is missing or weakly addressed, disapprove."] : []),
 		"4. Explain missing or weak evidence concisely. Disapprove alpha scaffold, generated template, shallow draft or proxy milestones lacking the user-facing value requested.",
@@ -356,7 +356,7 @@ export async function runGoalCompletionAuditor(args: {
 				: { resourceLoader: makeAuditorResourceLoader() }),
 			sessionManager: SessionManager.inMemory(args.ctx.cwd),
 			settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
-			tools: ["read", "grep", "find", "ls", "bash"],
+			tools: [...AUDITOR_READONLY_TOOLS],
 		} as Parameters<typeof createAgentSession>[0]);
 		const unsubscribe = session.subscribe((event) => {
 			if (event.type === "agent_start") {

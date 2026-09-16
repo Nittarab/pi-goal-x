@@ -5,6 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 
 import {
+	AUDITOR_READONLY_TOOLS,
 	buildGoalAuditorPrompt,
 	parseAuditorDecision,
 	resolveAuditorModel,
@@ -94,6 +95,39 @@ test("runGoalCompletionAuditor passes parent modelRuntime into createSession", a
 
 		assert.equal(captured?.modelRuntime, runtime);
 		assert.equal(captured?.modelRegistry, modelRegistry);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("runGoalCompletionAuditor exposes only read-only tools (no bash/write/edit)", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-goal-auditor-readonly-"));
+	const canary = path.join(cwd, "canary.txt");
+	fs.writeFileSync(canary, "untouched\n", "utf8");
+	try {
+		let capturedTools: string[] | undefined;
+		const mockSession = {
+			abort: () => {},
+			subscribe: () => () => {},
+			prompt: async () => {
+				fs.writeFileSync(canary, "untouched\n", "utf8");
+			},
+		};
+		await runGoalCompletionAuditor({
+			ctx: { cwd, model: undefined, modelRegistry: { find: () => undefined, getAvailable: () => [] } } as any,
+			goal: goal(),
+			detailedSummary: "test",
+			createSession: async (opts: any) => {
+				capturedTools = Array.isArray(opts.tools) ? (opts.tools as string[]) : [];
+				return { session: mockSession } as any;
+			},
+		});
+		const toolNames = capturedTools ?? [];
+		assert.deepEqual(toolNames, ["read", "grep", "find", "ls"]);
+		assert.equal(toolNames.some((name) => name === "bash" || name === "write" || name === "edit"), false);
+		assert.equal(fs.readFileSync(canary, "utf8"), "untouched\n");
+		assert.match(buildGoalAuditorPrompt({ goal: goal(), detailedSummary: "x" }), /read\/grep\/find\/ls as needed/);
+		assert.doesNotMatch(buildGoalAuditorPrompt({ goal: goal(), detailedSummary: "x" }), /bash/);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

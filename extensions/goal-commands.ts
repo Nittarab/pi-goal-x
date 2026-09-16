@@ -25,7 +25,7 @@ import { clearGoalCommandMessage, validateResumeGoal } from "./goal-policy.ts";
 import { invalidateGoalLedgerCache, readGoalLedger } from "./goal-ledger.ts";
 import { buildGoalStatusText } from "./goal-status.ts";
 import { effectiveSettingsReport, invalidateGoalSettingsCache, loadGoalSettingsFileConfig } from "./goal-settings.ts";
-import { invalidateGoalPoolCache, mergeGoalPromptFromDisk, readActiveGoalPool } from "./storage/goal-files.ts";
+import { invalidateGoalPoolCache, invalidatePersistedGoalPoolSnapshot, mergeGoalPromptFromDisk, readActiveGoalPool } from "./storage/goal-files.ts";
 import { nowIso, type GoalMode, type GoalRecord } from "./goal-record.ts";
 import { clearGoalDrafting, hasActiveDraft, startGoalDrafting } from "./goal-drafting.ts";
 import { formatRecoveryReport, runRecoveryReport, runRecoveryRepair } from "./goal-recovery.ts";
@@ -238,6 +238,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		const beforeSettings = settingsFingerprint(ctx);
 
 		invalidateGoalPoolCache();
+		invalidatePersistedGoalPoolSnapshot(ctx);
 		invalidateGoalLedgerCache();
 		invalidateGoalSettingsCache();
 
@@ -256,6 +257,13 @@ export function registerGoalCommands(core: GoalCore): void {
 			ledgerMalformed: afterLedger.malformed,
 			settings: afterSettings,
 		});
+
+		core.reconcileFocusedGoalFromDisk(ctx);
+		if (core.state.goal) core.syncGoalPromptFromDisk(ctx);
+		const tasksEnabledNow = !loadGoalSettings(ctx.cwd).disableTasks;
+		if (tasksEnabledNow !== core.tasksEnabled) {
+			core.installGoalToolProfile(tasksEnabledNow);
+		}
 
 		const text = changes.length > 0
 			? `goal-refresh: re-read caches from disk — ${changes.length} change(s):\n${changes.map((c) => `  - ${c}`).join("\n")}`

@@ -5,22 +5,24 @@
  * slow and only apply to transient provider failures, so an unavailable
  * provider never becomes a rapid auto-continue loop.
  *
- * Default policy is UNBOUNDED: recovery keeps retrying forever on an
- * escalating delay ladder that plateaus at `maxDelayMs`. A bounded cap can
- * be configured via layered settings (`networkRecovery.maxAttempts`, where
- * 0/unset means unbounded).
+ * Default policy is FINITE: five attempts on an escalating delay ladder that
+ * plateaus at `maxDelayMs`. `networkRecovery.maxAttempts` 0 is an explicit
+ * unbounded opt-in.
  */
 
 export const NETWORK_ERROR_BACKOFF_DELAYS_MS = [5_000, 10_000, 20_000, 40_000, 80_000] as const;
 
-/** Recovery policy: maxAttempts 0 = unbounded (default); delays plateau at maxDelayMs. */
+/** Default attempt cap; 0 remains a valid unbounded override. */
+export const DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS = 5;
+
+/** Recovery policy: maxAttempts 0 = unbounded; delays plateau at maxDelayMs. */
 export interface NetworkErrorRecoveryPolicy {
 	maxAttempts: number;
 	maxDelayMs: number;
 }
 
 export const DEFAULT_NETWORK_ERROR_RECOVERY_POLICY: NetworkErrorRecoveryPolicy = {
-	maxAttempts: 0,
+	maxAttempts: DEFAULT_NETWORK_RECOVERY_MAX_ATTEMPTS,
 	maxDelayMs: NETWORK_ERROR_BACKOFF_DELAYS_MS[NETWORK_ERROR_BACKOFF_DELAYS_MS.length - 1]!,
 };
 
@@ -38,8 +40,7 @@ function rawLadderDelay(attempt: number): number {
 
 /**
  * Return the recovery plan for a one-based attempt under the given policy,
- * or undefined once a configured bounded cap is exhausted. With the default
- * unbounded policy this never returns undefined.
+ * or undefined once a bounded cap is exhausted. maxAttempts 0 never exhausts.
  */
 export function networkErrorBackoffPlan(
 	attempt: number,
