@@ -6,6 +6,7 @@ All notable changes to pi-goal-x are documented here.
 
 ### Changed
 
+- README and package metadata identify this tree as the Nittarab fork. Removed upstream download-rank badges. Install is `git:github.com/Nittarab/pi-goal-x`. The npm name `pi-goal-x` remains upstream's.
 - Provider/network recovery is finite by default (5 attempts on the existing delay ladder). `networkRecovery.maxAttempts` 0 remains an unbounded opt-in. Exhaustion pauses the goal with a resume hint instead of leaving it active.
 - Isolated completion auditor sessions no longer receive `bash`; tools are `read`, `grep`, `find`, and `ls` only.
 

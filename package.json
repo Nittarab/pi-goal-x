@@ -1,9 +1,9 @@
 {
   "name": "pi-goal-x",
   "version": "0.31.4",
-  "description": "Adds /goal to pi: conversational goal planning, flexible or ordered goals, persistent progress, and an independent completion auditor.",
+  "description": "Nittarab fork of pi-goal-x: /goal and /sisyphus for pi, with bounded recovery, durable writes, and a read-only completion auditor. Not the npm package pi-goal-x.",
   "license": "MIT",
-  "author": "pi-goal-x contributors",
+  "author": "Nittarab fork contributors",
   "type": "module",
   "bin": {
     "pi-goal-x-recover": "scripts/recover-session-checkpoints.mjs"
@@ -20,11 +20,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tmonk/pi-goal-x.git"
+    "url": "git+https://github.com/Nittarab/pi-goal-x.git"
   },
-  "homepage": "https://github.com/tmonk/pi-goal-x#readme",
+  "homepage": "https://github.com/Nittarab/pi-goal-x#readme",
   "bugs": {
-    "url": "https://github.com/tmonk/pi-goal-x/issues"
+    "url": "https://github.com/Nittarab/pi-goal-x/issues"
   },
   "files": [
     "extensions",
@@ -44,7 +44,7 @@
     "extensions": [
       "extensions/goal.ts"
     ],
-    "image": "https://github.com/tmonk/pi-goal-x/raw/main/pi-goal-x.png"
+    "image": "https://github.com/Nittarab/pi-goal-x/raw/main/pi-goal-x.png"
   },
   "scripts": {
     "check": "tsc --noEmit",

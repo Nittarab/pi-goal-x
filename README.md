@@ -2,26 +2,38 @@
   <img src="pi-goal-x.png" alt="pi-goal-x logo" width="560">
 </div>
 
-<div align="center">
-  <a href="https://pi.dev/packages?type=extension" target="_blank" rel="noopener noreferrer">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="assets/badge-dark.svg">
-      <img src="assets/badge-light.svg" alt="TOP 0.3% of Pi coding agent extensions: #7 of 3,200 by downloads · Sep 14, 2026 (best recorded rank)" width="480">
-    </picture>
-  </a>
-</div>
+# pi-goal-x (Nittarab fork)
 
-# pi-goal-x
+Adds `/goal` to [pi](https://github.com/earendil-works/pi-coding-agent). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
 
-Adds `/goal` functionality to [pi](https://github.com/earendil-works/pi-coding-agent). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
+**This repository is a fork.** It is not the npm package [`pi-goal-x`](https://www.npmjs.com/package/pi-goal-x) and it does not use that package's download rank. Upstream lives at [tmonk/pi-goal-x](https://github.com/tmonk/pi-goal-x) (MIT, v0.31.4 base).
+
+The fork keeps the same `/goal` and `/sisyphus` commands. Do not install this fork and `npm:pi-goal-x` in the same pi.
 
 The extension saves goal objectives, tasks, and progress across sessions. You can pause, resume, revise, or switch goals as your work changes.
 
+## Why this fork exists
+
+The fork hardens goal lifecycle so a long run fails closed instead of looping, writing stale state, or presenting unused work as still required:
+
+- Provider/network recovery is finite by default (5 attempts), then the goal pauses with a resume hint.
+- The completion auditor is read-only (`read`, `grep`, `find`, `ls`). It does not get `bash`.
+- Goal mutations report success only after the goal file is committed. Checkpoints re-read disk.
+- Pause charges elapsed time, keeps skip/complete on tasks, and does not drop pending work to bypass completion gates.
+- Alternative paths (Fibonacci-style gates) become peer tasks, so the unused path can be skipped.
+- `/goal-status health` reports why work is not queued. The UI says idle when the scheduler cannot run.
+
 ## Install
 
+This fork is not on npm. Install from GitHub:
+
 ```bash
-pi install npm:pi-goal-x
+pi install git:github.com/Nittarab/pi-goal-x
 ```
+
+Then start a **new** pi session. The running session keeps the old package until you restart.
+
+Do not run `pi install npm:pi-goal-x` for this fork. That command installs upstream.
 
 ## Create a goal
 
@@ -82,6 +94,8 @@ When enabled, a separate agent reviews the work before the goal is accepted as c
 
 If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. You can choose the auditor model in `/goal-settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
 
+In this fork the auditor cannot run shell commands.
+
 ## Progress and goal controls
 
 The dashboard above the editor shows the goal's status, task progress, current task, elapsed time, and token usage. Press `Ctrl+Shift+T` to expand it for the full task tree, completion requirements, evidence, and recent activity. Audit progress and results appear there too.
@@ -122,7 +136,6 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 | Auditor disabled | Turn off independent completion review. |
 | Auditor provider, model, and thinking level | Choose which model reviews completed work and its reasoning effort. |
 
-
 ### Explicit execution and waiting
 
 Goals no longer restart merely because they remain unfinished or a tool was used. Before yielding, the agent declares runnable work or an external wait using `update_goal`, or reports complete, paused, or blocked. A missing decision permits one repair prompt within the remaining allowance, then pauses.
@@ -159,6 +172,18 @@ pi.events.emit("pi-goal:wake", { goalId, waitToken });
 `waitToken` is returned in the wait declaration's tool-result details. Register it before the producer completes, or retain the completion until registration (for example, observe the `update_goal` tool result in the host adapter). The token changes after consumption and re-declaration. A matching signal received before agent settlement is retained; duplicate, stale and wrong-goal tokens are ignored. A signal and timer can claim only one wake.
 
 Existing producers that directly send `triggerTurn`/`followUp` messages still run as ordinary host work and supersede old pending decisions. Those independently started turns are **outside this extension's allowance**; use `pi-goal:wake` to put them through its spending gate. The allowance also does not limit Pi's own within-run tool loop or native retries. It bounds the goal extension's kickoff, continuation, check, signal, repair and recovery dispatches.
+
+## Name and publish
+
+The npm name `pi-goal-x` belongs to upstream. This fork cannot publish under that name.
+
+A later publish needs a **new npm name**, npm trusted publishing on `Nittarab/pi-goal-x`, and a publish workflow that does not copy upstream ranking badges. Candidate: `@nittarab/pi-goal-x` (available). Commands can stay `/goal` so this remains a drop-in replacement.
+
+Until that exists, install from git as above.
+
+## Upstream
+
+Based on [tmonk/pi-goal-x](https://github.com/tmonk/pi-goal-x) v0.31.4. Copyright (c) 2026 Lucas. MIT license. See [LICENSE](LICENSE).
 
 ## License
 
