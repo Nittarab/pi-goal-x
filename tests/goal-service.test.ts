@@ -98,23 +98,18 @@ function activeFiles(cwd: string): string[] {
 	}
 }
 
-it("keeps an old locked buffer when focus changes, then flushes without stealing focus", () => {
+it("does not report success while another process holds the goal lock", () => {
 	const f = fixture();
 	try {
-		f.service.beginTurn(f, f.written.id);
-		assert.equal(f.service.apply(f, {mutate: goal => ({...goal, objective: "Buffered old-goal work"})}).ok, true);
-		const other = writeActiveGoalFile(f, createGoal({objective: "Other goal", autoContinue: false, sisyphus: false}));
-		f.ref.setFocused(other);
 		const lock = acquireGoalLock(f, f.written.id);
 		try {
 			const result = f.service.apply(f, {reconcile: false, mutate: goal => ({...goal, objective: "Should wait"})});
-			assert.equal(result.ok, false);
-			assert.equal(f.service.isTurnBuffered(), true);
+			assert.equal(result.ok, false, "held lock must not report a successful mutation");
+			assert.equal(parseGoalFile(path.join(f.cwd, f.written.activePath!))!.objective, f.written.objective);
 		} finally {lock.release();}
-		f.service.flushTurn(f);
-		assert.equal(f.ref.getFocusedGoalId(), other.id);
-		assert.equal(parseGoalFile(path.join(f.cwd, f.written.activePath!))!.objective, "Buffered old-goal work");
-		assert.equal(parseGoalFile(path.join(f.cwd, other.activePath!))!.objective, "Other goal");
+		const retry = f.service.apply(f, {reconcile: false, mutate: goal => ({...goal, objective: "After lock"})});
+		assert.equal(retry.ok, true);
+		assert.equal(parseGoalFile(path.join(f.cwd, f.written.activePath!))!.objective, "After lock");
 	} finally {f.cleanup();}
 });
 
@@ -205,26 +200,30 @@ describe("GoalService mutation pipeline", () => {
 		}
 	});
 
-	it("preserves a buffered turn when the lock is temporarily contended", () => {
+	it("in-turn mutations persist immediately and survive a missing endTurn", () => {
 		const f = fixture();
 		try {
 			f.service.beginTurn({ cwd: f.cwd }, f.written.id);
 			const result = f.service.apply({ cwd: f.cwd }, {
 				reconcile: false,
-				mutate: (g) => ({ ...g, objective: "=== Goal ===\nObjective: Retried flush" }),
+				mutate: (g) => ({ ...g, objective: "=== Goal ===\nObjective: Durable mid-turn" }),
 			});
-			assert.ok(result.ok, "in-turn mutation should be buffered");
-			const lock = acquireGoalLock({ cwd: f.cwd }, f.written.id);
-			try {
-				assert.equal(f.service.flushTurn({ cwd: f.cwd }), null, "contended flush should defer");
-				assert.equal(f.service.isTurnBuffered(), true, "deferred transaction must remain buffered");
-			} finally {
-				lock.release();
-			}
-			const flushed = f.service.flushTurn({ cwd: f.cwd });
-			assert.ok(flushed, "the buffered transaction should flush after contention clears");
-			assert.ok(parseGoalFile(path.join(f.cwd, ".pi", "goals", activeFiles(f.cwd)[0]!))?.objective.includes("Retried flush"));
-			assert.equal(f.service.isTurnBuffered(), false);
+			assert.ok(result.ok, "in-turn mutation must report success only after the file write");
+			assert.ok(parseGoalFile(path.join(f.cwd, ".pi", "goals", activeFiles(f.cwd)[0]!))?.objective.includes("Durable mid-turn"));
+			assert.equal(f.service.isTurnBuffered(), false, "success closes the turn buffer");
+		} finally {
+			f.cleanup();
+		}
+	});
+
+	it("authorizes from the goal file, not a stale in-memory pool", () => {
+		const f = fixture();
+		try {
+			const diskPaused = { ...f.written, status: "paused" as const, autoContinue: false, revision: (f.written.revision ?? 0) + 1 };
+			writeActiveGoalFile({ cwd: f.cwd }, diskPaused);
+			assert.equal(f.ref.getFocused()?.status, "active", "memory still thinks the goal is active");
+			assert.equal(f.service.refreshFocusedFromAuthoritativeFile({ cwd: f.cwd }), true);
+			assert.equal(f.ref.getFocused()?.status, "paused", "authorization must see the disk pause");
 		} finally {
 			f.cleanup();
 		}

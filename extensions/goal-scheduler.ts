@@ -265,7 +265,7 @@ export class GoalScheduler {
 	schedule(ctx: ExtensionContext): void {
 		if (this.inRun) return;
 		this.safe(ctx, () => {
-			this.core.reconcileFocusedGoalFromDisk(ctx);
+			if (!this.core.goalService.refreshFocusedFromAuthoritativeFile(ctx)) this.core.reconcileFocusedGoalFromDisk(ctx);
 			const g = this.core.state.goal;
 			if (!g || g.status !== "active" || !g.autoContinue || !g.scheduler) return;
 			const s = this.state(ctx, g);
@@ -294,6 +294,7 @@ export class GoalScheduler {
 		this.armedGeneration = undefined;
 		invalidateGoalSettingsCache();
 		try {
+			if (!this.core.goalService.refreshFocusedFromAuthoritativeFile(ctx)) throw new Error("Focused goal is not on disk.");
 			let result: Record<string, unknown> | null = null;
 			this.update(ctx, (s, g) => {
 				if (s.generation !== generation) throw new Error("Scheduling generation changed.");
