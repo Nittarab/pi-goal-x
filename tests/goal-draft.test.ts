@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { extractVerificationContract, promptSafeObjective, sisyphusObjectiveSufficient } from "../extensions/goal-contract.ts";
-import { goalDraftingPrompt } from "../extensions/goal-draft.ts";
+import { goalDraftingPrompt, promoteAlternativePathTasks } from "../extensions/goal-draft.ts";
 import { renderConfirmationTasks } from "../extensions/goal-task-confirmation.ts";
 
 test("extractVerificationContract splits contract line from objective", () => {
@@ -49,4 +49,20 @@ test("goalDraftingPrompt routes the complete presentation through the tool rende
 		assert.ok(prompt.includes("The tool call renderer is the scrollable, complete human presentation"), `${focus} prompt must name the renderer as the complete presentation`);
 		assert.ok(prompt.includes("tasks` parameter of `propose_goal_draft"), `${focus} prompt must still require the full task list via the tool`);
 	}
+});
+
+test("drafting promotes a Fibonacci gate to peer tasks", () => {
+	const promoted = promoteAlternativePathTasks([
+		{
+			id: "prove-one",
+			title: "Prove the last GTM CLI fault is gone",
+			status: "pending",
+			subtasks: [
+				{ id: "fix-missing", title: "Fix missing JSON body", status: "pending" },
+				{ id: "full-matrix", title: "Run the full-matrix", status: "pending" },
+			],
+		},
+	]);
+	assert.deepEqual(promoted.map((task) => task.id), ["prove-one", "fix-missing", "full-matrix"]);
+	assert.equal(promoted[0]!.subtasks, undefined);
 });

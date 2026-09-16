@@ -240,7 +240,7 @@ test("start validation rejects paused and taskless goals", async () => {
 	try {
 		const h = await startSession(f.cwd, f.sessionEntries);
 		const result = await callTool(h, "update_goal_task", "start-11", { task_id: "t1", status: "start" });
-		assert.ok((result.content?.[0]?.text ?? "").includes("only to an active goal"));
+		assert.ok((result.content?.[0]?.text ?? "").includes("active goal"));
 		const goal = activeGoal(f.cwd);
 		assert.equal(goal?.currentTaskId, undefined);
 	} finally {

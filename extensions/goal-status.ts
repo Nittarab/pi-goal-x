@@ -109,6 +109,23 @@ interface HealthCheck {
  * storage/runtime coherence only; it does not infer that the work itself is
  * complete from task counts or contracts.
  */
+function healthNotQueuedReason(goal: GoalRecord, options: GoalStatusTextOptions): string | undefined {
+	if (goal.status === "complete") return "Goal is complete; no work is queued.";
+	if (goal.status === "paused") return `Goal is paused${goal.pauseReason ? `: ${goal.pauseReason}` : ""}. Use /goal-resume.`;
+	if (goal.status === "blocked") return `Goal is blocked${goal.pauseReason ? `: ${goal.pauseReason}` : ""}.`;
+	if (goal.status === "budget_limited") return "Token budget exhausted.";
+	if (!options.focused) return "Goal is not focused in this session.";
+	if (!goal.autoContinue) return "autoContinue is off.";
+	if (options.maxAutonomousRuns === 0) return "maxAutonomousRuns=0 disables automatic runs.";
+	const scheduler = goal.scheduler;
+	if (!scheduler) return "No scheduler state; work is not claimed.";
+	if (scheduler.phase === "waiting") return `Waiting: ${scheduler.wait?.reason ?? "unspecified"}.`;
+	if (scheduler.phase === "interrupted") return "Scheduling interrupted; use /goal-resume.";
+	if (scheduler.phase === "idle" && !scheduler.decision) return "No ready/wait decision; work is not queued.";
+	if (scheduler.phase === "claimed") return "Dispatch claimed; waiting for settlement.";
+	return undefined;
+}
+
 function buildHealthStatus(options: GoalStatusTextOptions, width: number): string {
 	const goal = options.goal;
 	if (!goal) {
@@ -156,6 +173,21 @@ function buildHealthStatus(options: GoalStatusTextOptions, width: number): strin
 			value: `${completed}/${tasks.length} terminal · ${pending} pending${contractedPending > 0 ? ` · ${contractedPending} contracted` : ""}`,
 			severity: goal.taskList.blockCompletion && pending > 0 ? "warn" : "ok",
 		});
+	}
+
+	const scheduler = goal.scheduler;
+	if (scheduler) {
+		const last = scheduler.dispatch ? `${scheduler.dispatch.kind} at ${new Date(scheduler.dispatch.claimedAt).toISOString()}` : "none";
+		checks.push({
+			label: "Scheduler",
+			value: `phase ${scheduler.phase} · used ${scheduler.used} · last dispatch ${last}${scheduler.repairUsed ? " · repair used" : ""}`,
+			severity: scheduler.phase === "interrupted" ? "warn" : "ok",
+		});
+	}
+	const queuedReason = healthNotQueuedReason(goal, options);
+	if (queuedReason) {
+		const blocking = goal.status !== "active" || !goal.autoContinue || !options.focused || options.maxAutonomousRuns === 0 || scheduler?.phase === "waiting" || scheduler?.phase === "interrupted";
+		checks.push({ label: "Dispatch", value: queuedReason, severity: blocking ? "warn" : "ok" });
 	}
 
 	if (typeof goal.tokenBudget === "number" && goal.tokenBudget > 0) {

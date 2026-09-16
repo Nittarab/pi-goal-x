@@ -48,4 +48,8 @@ test("goal display helpers derive labels and footer", () => {
 
 	assert.equal(statusLabel({ ...goal, sisyphus: true }), "sisyphus running");
 	assert.equal(statusLabel({ ...goal, status: "paused", stopReason: "agent" }), "paused (agent)");
+	assert.equal(statusLabel({ ...goal, scheduler: { phase: "waiting" } }), "idle", "waiting scheduler must not display running");
+	assert.equal(statusLabel({ ...goal, scheduler: { phase: "interrupted" } }), "idle");
+	assert.equal(statusLabel({ ...goal, scheduler: { phase: "idle" } }), "idle");
+	assert.equal(statusLabel({ ...goal, scheduler: { phase: "ready", decision: { kind: "ready" } } }), "running");
 });

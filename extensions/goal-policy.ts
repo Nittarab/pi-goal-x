@@ -1,4 +1,5 @@
 import { statusLabel, type GoalDisplayRecordLike } from "./goal-core.ts";
+import { isAlternativePathGate } from "./goal-draft.ts";
 import type { GoalTask, GoalTaskList, TaskStatus } from "./goal-record.ts";
 import { countTaskSubtree } from "./goal-task-count.ts";
 
@@ -241,6 +242,7 @@ export function updateTaskInTree(tasks: GoalTask[], taskId: string, updater: (ta
  */
 export function checkSubtasksComplete(task: GoalTask): string | undefined {
 	if (!task.subtasks || task.subtasks.length === 0 || task.lightweightSubtasks) return undefined;
+	if (isAlternativePathGate(task, task.subtasks)) return undefined;
 	for (const child of task.subtasks) {
 		if (child.status === "pending") {
 			return `Task "${task.id}" has pending subtask "${child.id}". Complete or skip all subtasks first.`;

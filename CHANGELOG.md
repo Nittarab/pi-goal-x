@@ -14,6 +14,7 @@ All notable changes to pi-goal-x are documented here.
 - User pause (Esc, `/goal-pause`, abort) charges elapsed active time before clearing the accounting baseline.
 - `/goal-refresh` reconciles the focused goal from disk and reapplies settings, including the tool profile, immediately.
 - Lifecycle and task mutations no longer report success from an unflushed in-turn buffer; the authoritative goal file is committed first. Automatic checkpoints re-read that file instead of a stale pool snapshot.
+- Task parent/child means decomposition, not branching. Fibonacci-style gates become peer tasks so the unused path can be skipped. Paused goals with tasks keep `update_goal_task` for skip/complete. `set_goal_tasks` cannot drop pending tasks while `blockCompletion` is on. `/goal-status health` reports scheduler and why work is not queued. UI does not say running when the scheduler cannot dispatch.
 
 ## [0.31.4] — 2026-09-14
 

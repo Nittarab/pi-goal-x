@@ -15,6 +15,7 @@ import type { GoalTaskUpdateSpec } from "./goal-service.ts";
 import { goalDetails, renderGoalResult } from "./goal-format.ts";
 import { statusLabel, truncateText } from "./goal-core.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
+import { promoteAlternativePathTasks } from "./goal-draft.ts";
 import { buildTaskSummary, checkSubtasksComplete, findSubtaskDepthViolation, findTaskInTree, skipAllSubtasks } from "./goal-policy.ts";
 import { showTaskConfirmation, type TaskConfirmationResult } from "./goal-task-confirmation.ts";
 import {
@@ -120,7 +121,7 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 		return node;
 	}
 	// Both buckets were populated in input order, so sorting would repeat that work.
-	const tasks = roots.map(buildNode);
+	const tasks = promoteAlternativePathTasks(roots.map(buildNode));
 
 	// Lightweight placement: lightweight_subtasks must be on a task with children.
 	for (const item of flat) {
@@ -257,12 +258,12 @@ pi.registerTool(defineTool({
 	label: "Set Goal Tasks",
 	description: "Set or restructure the task tree with user confirmation. Matching IDs retain progress; removed IDs are deleted. Confirmation stops the turn; continuation follows.",
 	promptSnippet: "Set the goal task tree with confirmation.",
-	promptGuidelines: ["Use tasks only for useful milestones. Restructure an existing tree only when the user asks or requirements structurally change. Input is a flat parent-linked tree, at most 50 tasks, within configured depth. lightweight_subtasks is valid only on parents."],
+	promptGuidelines: ["Use tasks only for useful milestones. Parent-child means decomposition, not ordering or conditional branching. Alternative paths (for example a Fibonacci gate) must be peer tasks so the unused path can be skipped. Restructure an existing tree only when the user asks or requirements structurally change. Matching IDs keep status and evidence. Input is a flat parent-linked tree, at most 50 tasks, within configured depth. lightweight_subtasks is valid only on parents."],
 	parameters: Type.Object({
 		tasks: Type.Array(Type.Object({
 			id: Type.String({ description: "Short stable slug e.g. 'task-1'" }),
 			title: Type.String({ description: "Human-readable task title" }),
-			parent_id: Type.Optional(Type.String({ description: "Parent id; omit for roots." })),
+			parent_id: Type.Optional(Type.String({ description: "Parent id for decomposition only; omit for roots. Do not use parent/child for ordering or alternative branches." })),
 			verification_contract: Type.Optional(Type.String({ description: "Required completion evidence." })),
 			lightweight_subtasks: Type.Optional(Type.Boolean({ description: "Children do not gate parent completion." })),
 		}), { description: "Flat parent-linked task list" }),
@@ -297,6 +298,31 @@ pi.registerTool(defineTool({
 				content: [{ type: "text", text: converted.message }],
 				details: goalDetails(core.state.goal),
 			};
+		}
+		const existingList = core.state.goal.taskList;
+		if (existingList?.blockCompletion) {
+			const proposed = new Set<string>();
+			const walkProposed = (tasks: GoalTask[]): void => {
+				for (const task of tasks) {
+					proposed.add(task.id);
+					if (task.subtasks) walkProposed(task.subtasks);
+				}
+			};
+			walkProposed(converted.tasks);
+			const missing: string[] = [];
+			const walkExisting = (tasks: GoalTask[]): void => {
+				for (const task of tasks) {
+					if (task.status === "pending" && !proposed.has(task.id)) missing.push(task.id);
+					if (task.subtasks) walkExisting(task.subtasks);
+				}
+			};
+			walkExisting(existingList.tasks);
+			if (missing.length > 0) {
+				return {
+					content: [{ type: "text", text: `set_goal_tasks cannot drop pending tasks while blockCompletion is enabled (${missing.join(", ")}). Skip them with update_goal_task or keep their ids.` }],
+					details: goalDetails(core.state.goal),
+				};
+			}
 		}
 		const blockCompletion = params.block_completion === true;
 		const now = nowIso();
@@ -428,14 +454,15 @@ pi.registerTool(defineTool({
 				details: goalDetails(core.state.goal),
 			};
 		}
-		// update_goal_task applies only to an active goal with an existing task
-		// list; invalid lifecycle calls return a state-aware failure.
+		// Closeout (complete/skip) remains available on paused goals so
+		// blockCompletion cannot dead-end without update_goal_task.
 		if (!core.state.goal) {
 			return { content: [{ type: "text", text: "No goal is focused." }], details: goalDetails(core.state.goal) };
 		}
-		if (core.state.goal.status !== "active") {
+		const closeout = params.status === "complete" || params.status === "skipped";
+		if (core.state.goal.status !== "active" && !(core.state.goal.status === "paused" && closeout)) {
 			return {
-				content: [{ type: "text", text: `update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).` }],
+				content: [{ type: "text", text: `update_goal_task applies to an active goal, or to skip/complete tasks on a paused goal (current status: ${core.state.goal.status}).` }],
 				details: goalDetails(core.state.goal),
 			};
 		}
